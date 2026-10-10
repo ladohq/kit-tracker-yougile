@@ -50,9 +50,11 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
     the agent passes only when the human or its step says so. An unknown email is
     reported, never guessed.
   - `label`: `--add`/`--remove` of label words that `labels` in the settings maps to a
-    sticker state (R6); add sets that state, remove takes the sticker off the task; other
-    stickers untouched; already so is success; prints the task's mapped labels. A word the
-    settings do not map is refused (exit 3) before any request.
+    sticker state (R6); add sets that state, remove takes the sticker off the task when it
+    is in that state; other stickers untouched; already so is success; prints the task's
+    mapped labels. A word named in `--add`/`--remove` that the settings do not map, or
+    whose sticker or state is not on the board, is refused (exit 3) before any write; other
+    words of `labels` that no longer resolve are skipped, not refused.
   - `link`: posts the URL (and an optional title) as a comment and prints its id; Yougile
     has no link object.
   - `whoami`: the account the key belongs to (`GET /api-v2/users/me`), as
@@ -82,7 +84,7 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
 - **R6** A project's settings live in its repository, `.lado/tracker.yaml`, read only by
   the script, found from the current directory up to the repository root, in the strict
   YAML subset of `tracker-jira-server` (`key: value` lines, one level of nested maps,
-  inline `[a, b]` lists, `#` comments; anything else stops it with the path, the line and
+  `#` comments; every value one plain value, no lists; anything else stops it with the path, the line and
   what is wrong). Only `board` is required: the board's id, or its title when that title
   is unique in the company (otherwise the script names the matching boards and asks for
   the id). Optional: `statuses` (a word process kits use -> a column title of the board;
@@ -111,8 +113,9 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   (headings, bold, italic, inline code, fenced code blocks, bullet and numbered lists,
   links) for the description and the message's `textHtml`, and sends the Markdown as
   the message's plain `text` (the API requires both). If the converter fails, the text is
-  sent escaped as plain paragraphs. `get` shows text as Yougile keeps it, with no reverse
-  conversion. *Source:* brief, "Text format"; design round Q9 ("согласен").
+  sent escaped as plain paragraphs. Yougile drops inline code from descriptions (not from
+  comments), and SKILL.md says it shows there as plain text. `get` shows text as Yougile
+  keeps it, with no reverse conversion. *Source:* brief, "Text format"; design round Q9 ("согласен").
 - **R10** One default write scope in SKILL.md: reading is always fine; create,
   transition, comment, assign, label or link only when the agent's role, its step or the
   human asks, and only on the tasks named. A process kit may allow more. *Source:* brief,
@@ -122,7 +125,8 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   (2 arguments, 3 settings, 4 variable unset or `YOUGILE_URL` wrong, 5 key refused, 6 no
   access, 7 not found, 9 not reachable, 10 TLS, 11 refused request, 12 server error or
   rate limit, 1 crash). A refused key (401) is never retried, and its message says every
-  agent stops using Yougile until the human fixes the key. The API allows 50 requests a
+  agent stops using Yougile until the human makes a new key, stores it as the README says
+  and restarts the session (agents read the key only at start). The API allows 50 requests a
   minute per company (API, "Как использовать"): on 429 the script waits once (the
   `Retry-After` it gets, at most 60 s) and repeats that request once, since a 429 means
   it was not applied; a second 429 is exit 12. SKILL.md tells the agent what to do on each
@@ -139,8 +143,12 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   `YOUGILE_API_KEY` the human puts in the login shell's profile; every write of the trial
   goes to that board only. The facts the API leaves open (whether `GET /tasks/{id}` takes
   a key, that a task's chat id is the task's id, the order of columns, the shape of 401
-  and 429 answers) are checked there; until then the script relies only on what the API
-  documents. No local or self-hosted Yougile is kept in the kit's repository.
+  and 429 answers) are checked there. The trial of 2026-10-10 (artifact `trial`, board
+  "polygon", account `ladohq@yandex.ru`) passed for all nine actions and found that
+  `GET /tasks/{id}` takes both keys (R4), that the chat id is the task id, that columns
+  come in the board's order, and that Yougile strips inline code from descriptions (kept
+  in comments; SKILL.md says so, R9); a 429 did not occur. No local or self-hosted
+  Yougile is kept in the kit's repository.
   *Source:* brief, "What to carry over"; design round Q10 ("решим в процессе работы");
   the human, message #2439, after the self-hosted server could not be downloaded
   (dist.yougile.com unreachable through the VPN): "будет надежнее тестировать на живой
@@ -159,7 +167,7 @@ skill `tracker`, one standard-library script run by `uv`, credentials from the l
 shell, the mark, the write scope, the project settings file, Markdown in, one line and
 one exit code per failure, tests against a fake server. What differs follows Yougile's
 API: statuses are a board's columns (R3, R6), search has filters instead of a query
-language (R3), the key is `idTaskProject` found on the board (R4), labels are sticker
+language (R3), the key is `idTaskProject`, read with one request and checked against the board (R4), labels are sticker
 states (R6), a link is a comment (R3), text is HTML (R9), and the rate limit is waited
 out once (R11).
 
@@ -174,7 +182,7 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R4, R6, R8, R9, R10, R11 | the one skill the convention names; how to run each action, keys, Markdown, the settings with an example, the write scope, what each exit code means and what to do |
 | `skills/tracker/yougile.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R11 | the only way to Yougile without MCP; one file, standard library only; the nine commands, key lookup, settings, Markdown to HTML, the mark, the error table and the 429 wait |
 | `tests/test_yougile.py` | tests (outside the skill) | R11, R12 | checks the script against a fake Yougile before any real board; outside `skills/` so it does not ship into agents' skill folders |
-| `README.md` | doc | R1, R2, R5, R7 | how to add the kit, that `uv` is required, how to make and keep the key, `YOUGILE_URL`, and how to write `.lado/tracker.yaml` |
+| `README.md` | doc | R1, R2, R5, R7 | how to add the kit, that `uv` is required, how to make and keep the key, `YOUGILE_URL`, and where the format of `.lado/tracker.yaml` is (SKILL.md) |
 
 Reverse check:
 - R1: `kit.yaml`, `tracker` skill, `README.md` (no project values anywhere).
