@@ -39,7 +39,7 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   - `create`: title, description, optional status (default: the board's first column);
     prints the new task's key.
   - `transition`: without a target, lists the columns of the board the task can move to
-    (its current one marked); with a target (a column title or a word of `statuses`),
+    (its current one marked); with a target (a column title, a column id, or a word of `statuses`),
     moves the task by changing its column. A task already there changes nothing and says
     so (success). `--comment` posts a comment after the move. Moving does not touch
     Yougile's "completed" flag.
@@ -87,7 +87,7 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   `#` comments; every value one plain value, no lists; anything else stops it with the path, the line and
   what is wrong). Only `board` is required: the board's id, or its title when that title
   is unique in the company (otherwise the script names the matching boards and asks for
-  the id). Optional: `statuses` (a word process kits use -> a column title of the board;
+  the id). Optional: `statuses` (a word process kits use -> a column title of the board, or its id when titles repeat;
   the example maps `in progress`, `review`, `done`), `labels` (a label word -> `Sticker:
   State`, a sticker with states on the board). An action that needs a missing setting
   names it. *Source:* brief, "What to carry over", "Statuses", "Labels"; design round
