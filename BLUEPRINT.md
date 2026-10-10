@@ -10,8 +10,8 @@ in its repository. It is the Yougile counterpart of `tracker-jira-server` 1.2.0
 kit's text fits both.
 
 Sources: `BRIEF.md` at the repository root (commit ca6bcac); the design round of run
-`create/tracker-yougile` (session `tracker-yougile`, LADO messages #2347 and the answer
-to question #2363); Yougile's OpenAPI description `https://ru.yougile.com/api-json`
+`create/tracker-yougile` (session `tracker-yougile`, LADO messages #2347, the answers
+to questions #2363 and #2382, the reason of the first `design_ok` reject); Yougile's OpenAPI description `https://ru.yougile.com/api-json`
 ("YouGile REST API v2.0", read 2026-10-10), cited below as "API".
 
 ## 1. Requirements
@@ -87,7 +87,8 @@ to question #2363); Yougile's OpenAPI description `https://ru.yougile.com/api-js
 - **R7** Credentials come from the agent's environment, inherited from the user's login
   shell: `YOUGILE_API_KEY` (sent as `Authorization: Bearer`), and `YOUGILE_URL`,
   optional, default `https://yougile.com`, for another address of the same API v2 (a
-  company server); only the cloud is tested, and the README says so. `YOUGILE_URL` is
+  company's self-hosted Yougile, which serves the same API, by default on port 8001);
+  the README names which of cloud and self-hosted were tried (R12). `YOUGILE_URL` is
   `https://`, or `http://` to localhost for tests. The script never asks for, prints or
   writes the key; it never sees the user's password. The README shows how to make a key
   once (`POST /api-v2/auth/companies`, then `POST /api-v2/auth/keys`, with curl) and keep
@@ -127,11 +128,24 @@ to question #2363); Yougile's OpenAPI description `https://ru.yougile.com/api-js
 - **R12** The script is tested against a fake Yougile on localhost (standard library
   `unittest` and `http.server`, as `tests/test_jira.py` of `tracker-jira-server`): its
   requests, key lookup, the YAML subset, the mark, Markdown to HTML, 429 and every error
-  path. A trial on a real Yougile board before the release is settled during the run
-  (the human: "решим в процессе работы"); the facts the API leaves open (whether
-  `GET /tasks/{id}` takes a key, that a task's chat id is the task's id) are checked
-  there, and until then the script relies only on what the API documents.
-  *Source:* brief, "What to carry over"; design round Q10.
+  path. Before the release the kit is tried on a real Yougile: Yougile's self-hosted
+  server, run locally in Docker from files in the kit's repository
+  (`tests/yougile-server/`), reached at `http://localhost:8001`. Its distribution is
+  Linux x64 only (`https://dist.yougile.com/linux/latest/yougile.tar.gz`, started by
+  `./server`, port 8001; Yougile's install guide
+  `https://ru.yougile.com/media/docs/yougile-linux-ru.pdf`), so on an arm64 Mac the
+  container runs as `linux/amd64` under emulation. The README of `tests/yougile-server/`
+  says how to start it, make the first company, account and key, and a board for the
+  trial. The facts the API leaves open (whether `GET /tasks/{id}` takes a key, that a
+  task's chat id is the task's id, the shape of 401 and 429 answers) are checked there;
+  until then the script relies only on what the API documents. If the self-hosted server
+  cannot run without a license Yougile does not give for tests, the author reports it and
+  the trial moves to the cloud, with the human. The cloud is tried when an account is at
+  hand; that is not a condition of the release.
+  *Source:* brief, "What to carry over"; design round Q10 ("решим в процессе работы");
+  the human at the first `design_ok` gate (rejected: "Сможем ли мы поднять для
+  тестирования свой yougile сервер? Желательно в Docker") and the answer to #2382 ("Да:
+  Docker-коробка в репо и проба на ней").
 
 Decided in the design round, not requirements of this kit: the shared contract of status
 words between process and tracker kits stays with `sdlc` (its backlog, R16); this kit's
@@ -160,6 +174,7 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R4, R6, R8, R9, R10, R11 | the one skill the convention names; how to run each action, keys, Markdown, the settings with an example, the write scope, what each exit code means and what to do |
 | `skills/tracker/yougile.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R11 | the only way to Yougile without MCP; one file, standard library only; the nine commands, key lookup, settings, Markdown to HTML, the mark, the error table and the 429 wait |
 | `tests/test_yougile.py` | tests (outside the skill) | R11, R12 | checks the script against a fake Yougile before any real board; outside `skills/` so it does not ship into agents' skill folders |
+| `tests/yougile-server/` | test environment (outside the skill) | R7, R12 | a Dockerfile and compose file that run Yougile's self-hosted server on localhost, with a README on making the company, account, key and trial board; the only real Yougile the trial can rely on without a cloud account; outside `skills/`, so agents never get it |
 | `README.md` | doc | R1, R2, R5, R7 | how to add the kit, that `uv` is required, how to make and keep the key, `YOUGILE_URL`, and how to write `.lado/tracker.yaml` |
 
 Reverse check:
@@ -169,13 +184,13 @@ Reverse check:
 - R4: `tracker` skill, `yougile.py`.
 - R5: `kit.yaml`, `uv`, `yougile.py`, `README.md`.
 - R6: `tracker` skill, `yougile.py`.
-- R7: `yougile.py`, `README.md`.
+- R7: `yougile.py`, `README.md`, `tests/yougile-server/`.
 - R8: `tracker` skill, `yougile.py`.
 - R9: `tracker` skill, `yougile.py`.
 - R10: `tracker` skill.
 - R11: `tracker` skill, `yougile.py`, `tests/test_yougile.py`.
-- R12: `tests/test_yougile.py`; the trial on a real board is a step of the run, not a kit
-  file.
+- R12: `tests/test_yougile.py`, `tests/yougile-server/`; the trial itself is done in
+  the run before the release, not a kit file.
 
 ## 4. Complexity budget
 
