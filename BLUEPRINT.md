@@ -70,8 +70,7 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   accepts the company-wide number `idTaskCommon` (e.g. `ID-484`, also shown in Yougile's
   UI) and the task's id (a UUID). The key is short and stable, as process kits use it to
   name runs, branches and changes. The script reads a task with one `GET
-  /api-v2/tasks/{key}`, which takes either key (found in the trial on the cloud board,
-  artifact `trial`), so a lookup costs one request under the rate limit; a task whose
+  /api-v2/tasks/{key}`, which takes either key (found in the trial on the cloud board), so a lookup costs one request under the rate limit; a task whose
   column is not on the project's board is "not found" (exit 7). *Source:* brief, "Task
   keys"; design round Q3; the human at the release gate of run `create/tracker-yougile`
   (rejected: "ключ искать прямым GET /tasks/{ключ} … и принимать оба вида ключа,
@@ -147,8 +146,8 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   `YOUGILE_API_KEY` the human puts in the login shell's profile; every write of the trial
   goes to that board only. The facts the API leaves open (whether `GET /tasks/{id}` takes
   a key, that a task's chat id is the task's id, the order of columns, the shape of 401
-  and 429 answers) are checked there. The trial of 2026-10-10 (artifact `trial` of run
-  `create/tracker-yougile`, a test board and a test account in the cloud) passed for all nine actions and found that
+  and 429 answers) are checked there. The trial of 2026-10-10 (a test board and a test account in
+  the cloud) passed for all nine actions and found that
   `GET /tasks/{id}` takes both keys (R4), that the chat id is the task id, that columns
   come in the board's order, and that Yougile strips inline code from descriptions (kept
   in comments; SKILL.md says so, R9); a 429 did not occur. No local or self-hosted
