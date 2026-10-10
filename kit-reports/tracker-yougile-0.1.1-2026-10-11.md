@@ -2,12 +2,20 @@
 
 - Дата: 2026-10-11
 - Кит: корень worktree рана `improve/tracker-yougile-0-1-1` (путь задан задачей)
-- Коммит: `dcc19e4` (в `kit.yaml` пока `version: 0.1.0`; версию ставят на шаге release)
+- Коммит: `813090f` (в `kit.yaml` пока `version: 0.1.0`; версию ставят на шаге release)
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно `kit-reports/tracker-yougile-0.1.0-2026-10-10.md`
   (полная оценка `d41dd09`, отчёт в `1070353`; эту базу называет план),
   `git diff 1070353 -- kit.yaml README.md BLUEPRINT.md agents flows skills`
-- Проходы: три независимых суб-агента получили рубрику, папку кита, diff и прошлый отчёт.
+- Визит 2 (813090f): изменение после визита 1 (`git diff 2cf56a0 813090f`) — 3 коммита,
+  исправляющие F3.3, F3.4 и F9.2: SKILL.md (пункт Status), yougile.py (`column_name` в
+  `get`/`search`/`create`/`transition`, `--help`), BLUEPRINT R4 и R12. Изменение маленькое
+  (≈30 строк), поэтому три прохода по нему критик сделал сам, без суб-агентов: (1) от SKILL.md
+  к коду, (2) от кода (область видимости `config` и `columns`, кэш `api.columns`) к выводу,
+  (3) от BLUEPRINT к журналу. Находок одного прохода нет. Полный проход перед вердиктом не
+  повторялся: он был сделан на визите 1 (dcc19e4) по тем же четырём файлам, а с тех пор они
+  менялись только в проверенных местах.
+- Визит 1 (dcc19e4): три независимых суб-агента получили рубрику, папку кита, diff и прошлый отчёт.
   Каждый начинал со своего места: (1) README, (2) изменённые функции yougile.py с проверкой
   поведения, (3) BLUEPRINT по требованиям и проверка вырезанных правил по `--word-diff`.
   Отброшенных находок одного прохода нет; подтверждена одна (F9.2). Затем, перед вердиктом,
@@ -23,9 +31,9 @@
 | a. `lado kits check` | OK; 0 предупреждений |
 | a. Бюджет | зелёный; жёлтых и красных мер нет |
 | a. Потоки | 0 нарисовано (потоков нет, R2); скелетов в BLUEPRINT.md нет |
-| b. Рубрика | 2 находки (0 high, 1 medium, 1 low); 10 из 12 критериев без находок; ещё 1 low в «Пропущено ранее» |
+| b. Рубрика | 0 открытых находок (визит 1: 2 находки и 1 в «Пропущено ранее», все RESOLVED); 12 из 12 критериев без открытых находок |
 | Охват | повторная оценка изменённого текста и полный проход по 4 файлам из diff (README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/yougile.py) |
-| Правило остановки | не выполнено: 0 high, 1 medium (F3.3). Это совет к гейту релиза, а не блок |
+| Правило остановки | выполнено: 0 high, 0 medium в изменённом тексте |
 
 Счёт относится только к тому, что названо в строке «Охват».
 
@@ -71,21 +79,18 @@ error: kit.yaml: states must be a non-empty mapping   (exit 2)
 ```
 
 Тесты (это не текст кита): `uv run --no-project python -B -m unittest discover -s tests`
-дал `Ran 65 tests`, `OK`. Поиск следов проекта
-`grep -rnE 'ID-188|polygon|ladohq@|yandex|LAD-[0-9]|#2[0-9]{3}|~/Projects|/Users/'` вне
+дал `Ran 66 tests`, `OK`. Поиск следов проекта
+`grep -rnE 'ID-188|polygon|ladohq@|yandex|LAD-[0-9]|#2[0-9]{3}|~/Projects|/Users/|artifact `trial`'` вне
 `.git` и `kit-reports/` ничего не находит.
 
 ## Вердикт
 
 **approved**. `lado kits check` прошёл без ошибок, красных и жёлтых мер нет, различий со
-скелетами нет (скелетов нет), high-находок нет. F3.3 (medium) не блокирует, но
-рекомендуется исправить до тега.
+скелетами нет (скелетов нет), открытых находок нет. Правило остановки выполнено.
 
 ## Исправить в первую очередь
 
-1. SKILL.md:52 и `--help` для `transition`/`create --status`: указать, что id колонки —
-   допустимая цель (F3.3).
-2. BLUEPRINT:150 и :74: убрать ссылку на артефакт `trial` локального рана (F9.2).
+Нечего: открытых находок нет. Визит 1 называл F3.3 и F9.2 — обе RESOLVED.
 
 ## Находки
 
@@ -114,6 +119,9 @@ error: kit.yaml: states must be a non-empty mapping   (exit 2)
   repeat), or a word of `statuses`». В `--help` для `target` и `create --status` —
   «a column title or id, or a word of statuses». Passes: 3/3 (импакт: medium в двух
   проходах, low в одном; взят medium).
+  **RESOLVED (визит 2, 56ab46f):** SKILL.md:52–53 «a status `S` is a column's title, its id
+  (written after a title several columns share), or a word of `statuses` in the settings»;
+  yougile.py:1005 `help="a column title or id, or a word of statuses"`, `create --status` так же.
 
 ### 4. Независимая проверка
 
@@ -152,6 +160,9 @@ BLUEPRINT:192 «(no project values anywhere)» снова верна.
   Fix: в обоих местах убрать «artifact `trial` of run …», оставить «the trial on the cloud
   board». Passes: 1/3, confirmed (`grep -nF` даёт строки 150 и 74; полный проход
   подтвердил).
+  **RESOLVED (визит 2, d198520, 813090f):** `grep -nF 'artifact `trial`' BLUEPRINT.md BACKLOG.md`
+  ничего не находит; R4 «(found in the trial on the cloud board)», R12 «The trial of 2026-10-10
+  (a test board and a test account in the cloud)».
 
 ### 10. Описания скиллов
 
@@ -182,8 +193,11 @@ BLUEPRINT:192 «(no project values anywhere)» снова верна.
 ## Не прослежено
 
 Новых элементов нет: каждое изменение названо в R3, R4, R7 и R12 и в журнале раздела 5.
-Жёлтых и красных мер нет, скелетов нет. Расхождений кита с блюпринтом нет, кроме F3.3:
-R3 обещает id колонки как цель, а SKILL.md о нём молчит.
+Жёлтых и красных мер нет, скелетов нет. Расхождений кита с блюпринтом нет: R3:41 («a column
+title, a column id, or a word of `statuses`») теперь совпадает с SKILL.md. Строка 0.1.1 в
+журнале (BLUEPRINT:227) не называет F3.3, F3.4 и F9.2. Её «Repeated column titles shown with
+their ids» по смыслу покрывает F3.4, но не F3.3 и F9.2. Это неполнота журнала, а не
+расхождение: агентов она не меняет. Дописать строку может супервизор при релизе.
 
 ## Прошлые находки
 
@@ -231,12 +245,15 @@ BRIEF.md выполнено, и BLUEPRINT:12 ссылается на комми�
   На доске с двумя колонками `Done` агент по `get` или `search` не поймёт, в какой из них
   задача. Fix: печатать `column_name(column, columns)` в `_column_title` и в этих трёх
   выводах. Passes: full pass, confirmed (`column_name` используется только на :514 и :839).
+  **RESOLVED (визит 2, 56ab46f):** `column_name` теперь на yougile.py:675 (`_column_title`,
+  строка `Status:` в `get`), :758 (`search`), :826 (`create`), :847 и :854 (`transition`);
+  тест добавлен. `api.columns` кэширует колонки (`self._columns`), поэтому вызов в цикле
+  `search` не добавляет запросов.
 
 ## Вопросы человеку
 
-1. F3.3 (medium, правка в одну строку SKILL.md и две строки `--help`) вердикт не блокирует,
-   но правило остановки из-за неё не выполнено. Рекомендую: исправить до тега 0.1.1 вместе
-   с F9.2 и F3.4. Если нет — записать все три в BACKLOG.
+Вопросов нет. Визит 1 спрашивал, исправлять ли F3.3, F9.2 и F3.4 до тега: все три
+исправлены на этом круге.
 
 ## Найдено по пути
 
