@@ -1,0 +1,11 @@
+name: tracker-yougile
+version: 0.1.0
+description: >-
+  The tracker skill for Yougile (cloud or self-hosted, REST API v2): search, get, create,
+  transition, comment on, assign and label tasks, link a URL to a task, and whoami, with a
+  standard-library Python script run by uv. No agents: add it to a session next to a
+  process kit.
+dependencies:
+  lado: ">=0.30"
+expects:
+  commands: [uv]

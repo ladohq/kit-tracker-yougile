@@ -1,0 +1,12 @@
+# Yougile's self-hosted server on http://localhost:8001 (README.md says how to use it).
+services:
+  yougile:
+    build: .
+    image: lado-yougile-trial
+    platform: linux/amd64  # the only build Yougile ships; emulated on an arm64 Mac
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - database:/opt/yougile/database  # companies, users and tasks survive a restart
+volumes:
+  database:
