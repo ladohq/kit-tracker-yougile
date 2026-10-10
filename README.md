@@ -12,9 +12,9 @@ A process kit's roles say "use the tracker skill"; a role that cannot work witho
 lists `skills: [tracker]`, so a session without a tracker kit refuses to start.
 
 Where it was tried: against a fake Yougile in its tests, and on 2026-10-10 on a live board
-in Yougile's cloud, where every action worked, except moving a task between columns, which
-is not tried yet (the trial board had one column). Only the cloud is tried: a self-hosted
-Yougile (`YOUGILE_URL`) serves the same API but has not been tried.
+in Yougile's cloud, where all nine actions and the refused-key, not-found and settings
+errors worked. Only the cloud is tried: a self-hosted Yougile (`YOUGILE_URL`) serves the
+same API but has not been tried.
 
 ## Install and start
 
