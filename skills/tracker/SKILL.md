@@ -49,10 +49,10 @@ is not found (exit 7).
 | link a branch, commit or pull request | `link DEV-1 <url> [--title '<text>']` |
 | see which account you work as | `whoami` |
 
-- **Status** is a column of the project's board: a status `S` is a column's title or a
-  word of `statuses` in the settings ("review"). `transition` without a target lists the
-  columns (a title several columns share with its id), the task's own marked `(current)`;
-  run it first when you are unsure. `--comment` needs a target. Moving a
+- **Status** is a column of the project's board: a status `S` is a column's title, its id
+  (written after a title several columns share), or a word of `statuses` in the settings
+  ("review"). `transition` without a target lists the columns, the task's own marked
+  `(current)`; run it first when you are unsure. `--comment` needs a target. Moving a
   task does not tick Yougile's "completed" flag; `get` shows it when someone did.
 - **search** looks at the board's tasks, archived ones left out; `--text` matches words
   of the title. A full page ends with the `--start` of the next one.

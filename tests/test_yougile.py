@@ -473,7 +473,7 @@ class CommandsTest(YougileTestCase):
         self.assertEqual(out, "To do\nIn progress   (current)\nReview (%s)\nDone\n"
                               "review (%s)\n" % (REVIEW, uid(16)))
         code, out, err = self.run_yougile("transition", "DEV-2", uid(16))
-        self.assertEqual((code, out), (0, "DEV-2: In progress -> review\n"), err)
+        self.assertEqual((code, out), (0, "DEV-2: In progress -> review (%s)\n" % uid(16)), err)
 
     def test_get_by_number_and_id_shows_the_key(self):
         for name in ("ID-12", "id-12", T2):
@@ -567,6 +567,20 @@ class CommandsTest(YougileTestCase):
             with self.subTest(argv=argv):
                 self.assertFails(yougile.NOT_FOUND, "not found on board 'Dev'", *argv)
         self.assertEqual(self.api.data["messages"].get(T2, []), [])
+
+    def test_repeated_titles_show_the_id_everywhere(self):
+        self.api.data["columns"].append({"id": uid(16), "title": "review", "boardId": BOARD})
+        review = "Review (%s)" % REVIEW
+        _, out, _ = self.run_yougile("get", "DEV-4")
+        self.assertIn("Status: %s\n" % review, out)
+        _, out, _ = self.run_yougile("search", "--status", REVIEW)
+        self.assertIn("DEV-4  [%s]  Profile" % review, out)
+        _, out, _ = self.run_yougile("create", "--title", "x", "--status", REVIEW)
+        self.assertRegex(out, r"created in Review \(%s\)\n$" % REVIEW)
+        _, out, _ = self.run_yougile("transition", "DEV-4", REVIEW)
+        self.assertEqual(out, "DEV-4 is already in %s\n" % review)
+        _, out, _ = self.run_yougile("transition", "DEV-2", REVIEW)
+        self.assertEqual(out, "DEV-2: In progress -> %s\n" % review)
 
     def test_transition_comment_needs_a_target(self):
         self.assertFails(yougile.USAGE, "--comment needs a target", "transition", "DEV-2",

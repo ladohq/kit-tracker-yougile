@@ -669,9 +669,10 @@ def _assignees(api, ids):
 
 
 def _column_title(api, config, column_id):
-    for column in (api.columns(config) if config else []):
+    columns = api.columns(config) if config else []
+    for column in columns:
         if column.get("id") == column_id:
-            return column.get("title")
+            return column_name(column, columns)
     if not column_id:
         return "no column"
     try:
@@ -754,7 +755,8 @@ def cmd_search(api, args):
         return OK
     print("Tasks %d-%d of %d" % (args.start + 1, args.start + len(shown), total))
     for column, task in shown:
-        print("%s  [%s]  %s  (%s)" % (key_of(task), column.get("title"), task.get("title"),
+        print("%s  [%s]  %s  (%s)" % (key_of(task), column_name(column, api.columns(config)),
+                                      task.get("title"),
                                       _assignees(api, task.get("assigned") or [])))
     if args.start + len(shown) < total:
         print("More: run again with --start %d" % (args.start + len(shown)))
@@ -821,7 +823,7 @@ def cmd_create(api, args):
     except Failure as failure:
         raise Failure(failure.code, "task %s created, but reading its key failed (do not run "
                                     "create again): %s" % (task_id, failure.message))
-    print("%s created in %s" % (key_of(task), column.get("title")))
+    print("%s created in %s" % (key_of(task), column_name(column, api.columns(config))))
     return OK
 
 
@@ -842,14 +844,14 @@ def cmd_transition(api, args):
     comment = read_text(args.comment) if args.comment is not None else None
     column = api.column(config, args.target)
     if column is current:
-        there = "%s is already in %s" % (key, current.get("title"))
+        there = "%s is already in %s" % (key, column_name(current, columns))
         if comment is not None:
             there += ", comment %s added" % _send_message(api, task, comment)
         print(there)
         return OK
     api.call("PUT", "tasks/%s" % task["id"], body={"columnId": column["id"]},
              missing=missing_task(key))
-    moved = "%s: %s -> %s" % (key, current.get("title"), column.get("title"))
+    moved = "%s: %s -> %s" % (key, column_name(current, columns), column_name(column, columns))
     if comment is not None:
         try:
             moved += ", comment %s added" % _send_message(api, task, comment)
@@ -994,13 +996,13 @@ def parser():
     p = sub.add_parser("create", help="create a task on the board")
     p.add_argument("--title", required=True)
     p.add_argument("--description", help="Markdown; '-' reads it from stdin")
-    p.add_argument("--status", help="a column title or a word of statuses (default: the "
-                                    "board's first column)")
+    p.add_argument("--status", help="a column title or id, or a word of statuses (default: "
+                                    "the board's first column)")
     p.set_defaults(run=cmd_create)
 
     p = sub.add_parser("transition", help="list the columns, or move a task to one")
     p.add_argument("key")
-    p.add_argument("target", nargs="?", help="a column title, or a word of statuses")
+    p.add_argument("target", nargs="?", help="a column title or id, or a word of statuses")
     p.add_argument("--comment", help="comment to add after the move (needs a target), "
                                      "Markdown; '-' reads it from stdin")
     p.set_defaults(run=cmd_transition)
