@@ -8,7 +8,8 @@
 Commands: search, get, create, transition, comment, assign, label, link, whoami (run with
 --help). Credentials come from YOUGILE_API_KEY and YOUGILE_URL (optional, default
 https://yougile.com, or a self-hosted Yougile's address); the key is never printed.
-Tasks are named by the key people see (idTaskProject, e.g. DEV-484) or by their id.
+Tasks are named by the key people see (idTaskProject, e.g. DEV-484), the company-wide
+number (idTaskCommon, e.g. ID-188) or their id; tasks of other boards are not found.
 Text sent to Yougile is Markdown, converted to HTML. Project settings come from
 .lado/tracker.yaml, found from the current directory up to the repository root.
 Python standard library only, run by `uv run --script`.
@@ -52,8 +53,8 @@ APPLIED = ("; the change may have been applied: once Yougile answers again, chec
            "get before running it again")
 # Yougile answered a 5xx, so nobody will say it answers again: check before running again.
 APPLIED_ANSWERED = "; the change may have been applied: check with get before running it again"
-STOP_ALL = ("; the lead tells every agent to stop using Yougile until the human fixes the "
-            "key")
+STOP_ALL = ("; the lead tells every agent to stop using Yougile until the human puts a "
+            "new key in the login shell's profile and restarts the session")
 WAIT = "; send Yougile nothing more until you are told it answers again"
 NOT_YOUGILE = ("the answer is not Yougile's API: YOUGILE_URL is not Yougile's address "
                "(https://yougile.com, or your self-hosted Yougile's)")
@@ -419,6 +420,10 @@ class Yougile:
                           if (c.get("title") or "").casefold() == title.casefold()]
         if len(match) != 1:
             problem = "is ambiguous" if match else "is not a column of the board"
+            if target in config["statuses"]:
+                raise Failure(CONFIG, "'statuses.%s: %s' in %s %s; its columns: %s; the "
+                                      "user fixes the file" % (target, title, CONFIG_PATH,
+                                                               problem, column_list(columns)))
             raise Failure(REFUSED, "status '%s' %s; its columns: %s"
                           % (target, problem, column_list(columns)))
         return match[0]
@@ -428,18 +433,18 @@ class Yougile:
                 if not t.get("deleted")]
 
     def task(self, config, key):
-        """The task named by its key (DEV-484) on the board, or by its id."""
-        if UUID.match(key):
-            return self.call("GET", "tasks/" + key, missing=missing_task(key))
-        if config is None:
-            config = load_config()
-        for column in self.columns(config):
-            for task in self.tasks(column["id"]):
-                if (task.get("idTaskProject") or "").casefold() == key.casefold():
-                    return self.call("GET", "tasks/" + task["id"],
-                                     missing=missing_task(key))
-        raise Failure(NOT_FOUND, "task %s not found on board '%s': check the key, or you "
-                                 "may not see it" % (key, self.board(config).get("title")))
+        """The task named by its key (DEV-484), its number (ID-188) or its id, on the board.
+
+        One request: GET /tasks/{key} takes any of the three (tried on Yougile's cloud).
+        """
+        columns = self.columns(config)
+        missing = "task %s not found on board '%s': check the key, or you may not see it" % (
+            key, self.board(config).get("title"))
+        task = self.call("GET", "tasks/" + urllib.parse.quote(key, safe=""),
+                         missing=missing) or {}
+        if task.get("deleted") or task.get("columnId") not in {c.get("id") for c in columns}:
+            raise Failure(NOT_FOUND, missing)
+        return task
 
     def person(self, user_id):
         """An account as 'Real Name (email)', comparable with whoami."""
@@ -632,18 +637,23 @@ def agent_mark():
     return "[LADO: %s]" % agent if agent else ""
 
 
-def marked_html(markdown):
-    """The description to send: the mark as its first paragraph, then the text."""
+def _marked(body):
+    """HTML to send: the mark as its first paragraph, then the body."""
     label = agent_mark()
-    body = to_html(markdown) if markdown is not None else ""
     return ("<p>%s</p>" % html.escape(label) if label else "") + body
 
 
-def _send_message(api, task, markdown):
+def marked_html(markdown):
+    """The description to send: the mark, then the Markdown as HTML."""
+    return _marked(to_html(markdown) if markdown is not None else "")
+
+
+def _send_message(api, task, markdown, body_html=None):
     """Post a message to the task's chat (its id is the task's id); return its id."""
     label = agent_mark()
     text = "%s\n\n%s" % (label, markdown) if label else markdown
-    body = {"text": text, "textHtml": marked_html(markdown), "label": ""}
+    body = {"text": text, "label": "",
+            "textHtml": _marked(body_html) if body_html else marked_html(markdown)}
     result = api.call("POST", "chats/%s/messages" % task["id"], body=body,
                       missing=missing_task(key_of(task)))
     return (result or {}).get("id")
@@ -692,6 +702,18 @@ def _resolve_label(stickers, config, word):
     return found[0]["id"], state[0]["id"]
 
 
+def _resolvable(stickers, config, words):
+    """(sticker id, state id) of each word the board has; the others left out."""
+    resolved = {}
+    for word in words:
+        try:
+            resolved[word] = _resolve_label(stickers, config, word)
+        except Failure as failure:
+            if failure.code != CONFIG:
+                raise
+    return resolved
+
+
 def _has(value, state_id):
     return state_id in value if isinstance(value, list) else value == state_id
 
@@ -735,14 +757,14 @@ def cmd_search(api, args):
 
 
 def cmd_get(api, args):
-    config = load_config() if not UUID.match(args.key) or find_config(os.getcwd()) else None
+    config = load_config()
     task = api.task(config, args.key)
     print("%s  %s" % (key_of(task), task.get("title")))
     flags = [name for name in ("completed", "archived") if task.get(name)]
     print("Status: %s%s" % (_column_title(api, config, task.get("columnId")),
                             "   (%s)" % ", ".join(flags) if flags else ""))
     print("Assignees: %s" % _assignees(api, task.get("assigned") or []))
-    if config and config["labels"]:
+    if config["labels"]:
         try:
             stickers = _stickers(api, config)
             resolved = {w: _resolve_label(stickers, config, w) for w in config["labels"]}
@@ -784,7 +806,14 @@ def cmd_create(api, args):
     text = marked_html(description)
     if text:
         body["description"] = text
-    created = api.call("POST", "tasks", body=body)
+    try:
+        created = api.call("POST", "tasks", body=body)
+    except Failure as failure:
+        # A task that may have been created has no key yet: look for it by its title.
+        failure.message = failure.message.replace(
+            "check with get before running it again",
+            "look for it with search --text '%s' before running create again" % args.title)
+        raise
     task_id = (created or {}).get("id")
     try:
         task = api.call("GET", "tasks/%s" % task_id, missing=missing_task(task_id))
@@ -795,19 +824,11 @@ def cmd_create(api, args):
     return OK
 
 
-def _on_board(api, config, task):
-    columns = api.columns(config)
-    if task.get("columnId") not in {c.get("id") for c in columns}:
-        raise Failure(REFUSED, "%s is not on board '%s': moving it there is not this "
-                               "action's" % (key_of(task), api.board(config).get("title")))
-    return columns
-
-
 def cmd_transition(api, args):
     config = load_config()
     task = api.task(config, args.key)
     key = key_of(task)
-    columns = _on_board(api, config, task)
+    columns = api.columns(config)
     current = [c for c in columns if c.get("id") == task.get("columnId")][0]
     if not args.target:
         for column in columns:
@@ -851,13 +872,13 @@ def cmd_transition(api, args):
 
 def cmd_comment(api, args):
     text = read_text(args.text)
-    task = api.task(None if UUID.match(args.key) else load_config(), args.key)
+    task = api.task(load_config(), args.key)
     print("%s: comment %s added" % (key_of(task), _send_message(api, task, text)))
     return OK
 
 
 def cmd_assign(api, args):
-    task = api.task(None if UUID.match(args.key) else load_config(), args.key)
+    task = api.task(load_config(), args.key)
     key = key_of(task)
     current = list(task.get("assigned") or [])
     target = api.user_by(args.user)
@@ -887,7 +908,9 @@ def cmd_label(api, args):
     for word in add + remove:
         sticker_state(config, word)  # a word the settings do not map: before any request
     stickers = _stickers(api, config)
-    resolved = {w: _resolve_label(stickers, config, w) for w in config["labels"]}
+    named = {w: _resolve_label(stickers, config, w) for w in add + remove}
+    # Shown labels: the named ones and every other word the board still has.
+    resolved = dict(_resolvable(stickers, config, config["labels"]), **named)
     task = api.task(config, args.key)
     key = key_of(task)
     current = dict(task.get("stickers") or {})
@@ -927,10 +950,13 @@ def cmd_label(api, args):
 
 
 def cmd_link(api, args):
-    task = api.task(None if UUID.match(args.key) else load_config(), args.key)
+    task = api.task(load_config(), args.key)
     text = "[%s](%s)" % (args.title, args.url) if args.title else args.url
+    # The anchor is built here: a bare URL read as Markdown loses its _x_ to <em>.
+    anchor = '<p><a href="%s">%s</a></p>' % (
+        html.escape(args.url), _inline(args.title) if args.title else html.escape(args.url))
     print("%s: linked %s in comment %s" % (key_of(task), args.url,
-                                           _send_message(api, task, text)))
+                                           _send_message(api, task, text, anchor)))
     return OK
 
 
@@ -957,7 +983,7 @@ def parser():
     p.set_defaults(run=cmd_search)
 
     p = sub.add_parser("get", help="read a task: status, assignees, description, comments")
-    p.add_argument("key", help="the task's key (DEV-484) or id")
+    p.add_argument("key", help="the task's key (DEV-484), number (ID-188) or id")
     p.add_argument("--comments", type=int, default=5, help="last N comments (default 5)")
     p.set_defaults(run=cmd_get)
 

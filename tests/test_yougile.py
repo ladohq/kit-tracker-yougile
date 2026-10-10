@@ -79,13 +79,13 @@ def model():
         "users": [{"id": ME, "realName": "Agent Smith", "email": "agent@example.com"},
                   {"id": ANN, "realName": "Ann Lee", "email": "ann@example.com"}],
         "tasks": [
-            {"id": T1, "idTaskProject": "DEV-1", "title": "Login form", "columnId": TODO,
+            {"id": T1, "idTaskProject": "DEV-1", "idTaskCommon": "ID-11", "title": "Login form", "columnId": TODO,
              "assigned": [], "description": "<p>Make it</p>"},
-            {"id": T2, "idTaskProject": "DEV-2", "title": "Logout", "columnId": PROGRESS,
+            {"id": T2, "idTaskProject": "DEV-2", "idTaskCommon": "ID-12", "title": "Logout", "columnId": PROGRESS,
              "assigned": [ANN]},
-            {"id": T3, "idTaskProject": "DEV-3", "title": "Old login", "columnId": PROGRESS,
+            {"id": T3, "idTaskProject": "DEV-3", "idTaskCommon": "ID-13", "title": "Old login", "columnId": PROGRESS,
              "assigned": [], "archived": True},
-            {"id": T4, "idTaskProject": "DEV-4", "title": "Profile", "columnId": REVIEW,
+            {"id": T4, "idTaskProject": "DEV-4", "idTaskCommon": "ID-14", "title": "Profile", "columnId": REVIEW,
              "assigned": [ME], "stickers": {PRIORITY: "hi"}},
         ],
         "stickers": [
@@ -199,11 +199,16 @@ class FakeYougile:
         if parts == ["tasks"] and method == "POST":
             self.created += 1
             task = dict(body, id=uid(70 + self.created), idTaskProject="DEV-%d"
-                        % (100 + self.created), assigned=[])
+                        % (100 + self.created), idTaskCommon="ID-%d" % (100 + self.created),
+                        assigned=[])
             self.data["tasks"].append(task)
             return 201, {"id": task["id"]}
         if parts[0] == "tasks" and len(parts) == 2:
-            task = self.find("tasks", parts[1])
+            # Yougile takes the id, the key or the number, in any case.
+            wanted = urllib.parse.unquote(parts[1]).casefold()
+            task = next((t for t in self.data["tasks"] if wanted in (
+                t["id"], t["idTaskProject"].casefold(),
+                t.get("idTaskCommon", "").casefold())), None)
             if not task:
                 return not_found
             if method == "PUT":
@@ -413,9 +418,9 @@ class CommandsTest(YougileTestCase):
         self.api.data["tasks"] += [
             {"id": uid(500 + n), "idTaskProject": "DEV-%d" % (500 + n), "title": "t",
              "columnId": DONE, "assigned": []} for n in range(1001)]
-        code, out, err = self.run_yougile("get", "DEV-1500")
+        code, out, err = self.run_yougile("search", "--status", "done", "--start", "1000")
         self.assertEqual(code, 0, err)
-        self.assertIn("DEV-1500  t", out)
+        self.assertIn("DEV-1500  [Done]  t", out)
         offsets = [r["query"]["offset"] for r in self.sent("GET", "task-list")
                    if r["query"]["columnId"] == DONE]
         self.assertEqual(offsets, ["0", "1000"])
@@ -424,6 +429,13 @@ class CommandsTest(YougileTestCase):
         self.assertFails(yougile.REFUSED, "status 'qa' is not a column of the board; its "
                                           "columns: To do, In progress, Review, Done",
                          "search", "--status", "qa")
+
+    def test_statuses_word_of_no_column_is_the_settings(self):
+        self.write_config("board: Dev\nstatuses:\n  review: QA\n")
+        self.assertFails(yougile.CONFIG, "'statuses.review: QA' in .*is not a column of the "
+                                         "board; its columns: To do.*the user fixes the file",
+                         "transition", "DEV-1", "review")
+        self.assertEqual(self.sent("PUT", "tasks/" + T1), [])
 
     def test_get_by_key(self):
         code, out, err = self.run_yougile("get", "dev-1", "--comments", "2")
@@ -438,14 +450,20 @@ class CommandsTest(YougileTestCase):
             "note 3\n"))
         self.assertEqual(self.sent("GET", "chats/%s/messages" % T1)[0]["query"]["limit"],
                          "1000")
-
-    def test_get_by_id_without_settings(self):
-        os.remove(os.path.join(self.repo, ".lado", "tracker.yaml"))
-        code, out, err = self.run_yougile("get", T2)
-        self.assertEqual(code, 0, err)
-        self.assertIn("DEV-2  Logout\nStatus: In progress\n", out)
-        self.assertNotIn("Labels", out)
+        # One request for the task, none over the board's tasks.
+        self.assertEqual(len(self.sent("GET", "tasks/dev-1")), 1)
         self.assertEqual(self.sent("GET", "task-list"), [])
+
+    def test_get_by_number_and_id_shows_the_key(self):
+        for name in ("ID-12", "id-12", T2):
+            with self.subTest(name=name):
+                code, out, err = self.run_yougile("get", name)
+                self.assertEqual(code, 0, err)
+                self.assertIn("DEV-2  Logout\nStatus: In progress\n", out)
+
+    def test_get_needs_the_settings(self):
+        os.remove(os.path.join(self.repo, ".lado", "tracker.yaml"))
+        self.assertFails(yougile.CONFIG, "tracker.yaml not found", "get", T2)
 
     def test_get_shows_flags_and_labels(self):
         self.task(T4).update(completed=True, stickers={RELEASE: "wait", PRIORITY: "hi"})
@@ -488,6 +506,13 @@ class CommandsTest(YougileTestCase):
         self.assertEqual(self.sent("POST", "tasks")[0]["body"],
                          {"title": "New", "columnId": REVIEW})
 
+    def test_create_failure_says_search_not_get(self):
+        self.api.route("POST", "tasks", {"error": "boom"}, status=502)
+        err = self.assertFails(yougile.SERVER_ERROR, "may have been applied: look for it with "
+                                                     "search --text 'New' before running "
+                                                     "create again", "create", "--title", "New")
+        self.assertNotIn("check with get", err)
+
     def test_create_key_not_read_back(self):
         self.api.route("GET", "tasks/" + uid(71), {"error": "x"}, status=500)
         self.assertFails(yougile.SERVER_ERROR, "created, but reading its key failed \\(do "
@@ -514,9 +539,12 @@ class CommandsTest(YougileTestCase):
         self.assertEqual((code, out), (0, "DEV-2 is already in In progress\n"))
         self.assertEqual(self.sent("PUT", "tasks/" + T2), [])
 
-    def test_transition_task_of_another_board(self):
+    def test_task_of_another_board_is_not_found(self):
         self.task(T2)["columnId"] = FOREIGN
-        self.assertFails(yougile.REFUSED, "is not on board 'Dev'", "transition", T2, "done")
+        for argv in (("transition", T2, "done"), ("get", "DEV-2"), ("comment", "ID-12", "x")):
+            with self.subTest(argv=argv):
+                self.assertFails(yougile.NOT_FOUND, "not found on board 'Dev'", *argv)
+        self.assertEqual(self.api.data["messages"].get(T2, []), [])
 
     def test_transition_comment_failure_keeps_the_move(self):
         self.api.route("POST", "chats/%s/messages" % T2, {"message": "bad"}, status=400)
@@ -548,6 +576,15 @@ class CommandsTest(YougileTestCase):
         self.assertEqual(self.api.data["messages"][T1][-1]["textHtml"],
                          '<p>[LADO: developer]</p><p><a href="https://git.example/pr/7">PR '
                          '7</a></p>')
+
+    def test_link_without_title_is_an_anchor(self):
+        url = "https://git.example/o/r/tree/fix/_draft_/x"
+        code, out, err = self.run_yougile("link", "DEV-1", url)
+        self.assertEqual(code, 0, err)
+        message = self.api.data["messages"][T1][-1]
+        self.assertEqual(message["textHtml"], '<p>[LADO: developer]</p><p><a href="%s">%s'
+                                              '</a></p>' % (url, url))
+        self.assertEqual(message["text"], "[LADO: developer]\n\n" + url)
 
     def test_assign_me_and_none(self):
         code, out, err = self.run_yougile("assign", "DEV-1", "me")
@@ -608,6 +645,11 @@ class CommandsTest(YougileTestCase):
                          "label", "DEV-4", "--add", "urgent")
         self.assertEqual(self.api.requests, [])
 
+    def test_label_stale_mapping_of_another_word(self):
+        self.write_config(CONFIG + "  gone: 'Release: Lost'\n")
+        code, out, err = self.run_yougile("label", "DEV-4", "--add", "shipped")
+        self.assertEqual((code, out), (0, "DEV-4: labels shipped\n"), err)
+
     def test_label_mapping_not_on_board(self):
         self.write_config("board: Dev\nlabels:\n  x: 'Release: Lost'\n")
         self.assertFails(yougile.CONFIG, "sticker 'Release' has no state 'Lost'.*Waiting, "
@@ -657,7 +699,7 @@ class ErrorsTest(YougileTestCase):
         self.assertFails(yougile.NO_ACCESS, "no access \\(403\\): Forbidden", "get", T1)
 
     def test_not_found_by_id(self):
-        self.assertFails(yougile.NOT_FOUND, "task %s not found \\(404\\)" % uid(99),
+        self.assertFails(yougile.NOT_FOUND, "task %s not found on board .Dev." % uid(99),
                          "get", uid(99))
 
     def test_refused_request(self):

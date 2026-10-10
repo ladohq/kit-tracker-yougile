@@ -32,8 +32,9 @@ roles and steps may allow more.
 
 ## Actions
 
-A task is named by the key Yougile shows on it (`DEV-484`) or by its id; the script
-prints the key everywhere.
+A task is named by the key Yougile shows on it (`DEV-484`), by its company-wide number
+(`ID-188`) or by its id; the script prints the key everywhere. A task of another board
+is not found (exit 7).
 
 | To | Run |
 |---|---|
@@ -70,8 +71,8 @@ prints the key everywhere.
   (exit 11, the holder named) whatever the target: report it, and add `--reassign` only
   when the human or your step says to take it from them.
 - **label**: a label is a word of `labels` in the settings, which maps it to a state of a
-  sticker on the board; `--add` sets that state, `--remove` takes the sticker off. Other
-  stickers stay as they are. A word the settings do not map is refused (exit 3).
+  sticker on the board; `--add` sets that state, `--remove` takes the sticker off when it
+  is in that state. Other stickers stay as they are. A word the settings do not map is refused (exit 3).
 - **assign**, **label**, **transition**: when the task is already so, they change nothing
   and say so; that is success.
 - Text of more than one line goes on stdin with `-`:
@@ -86,7 +87,8 @@ prints the key everywhere.
 
 Write descriptions and comments in Markdown; the script converts it to the HTML Yougile
 keeps and shows: headings, bold, italic, inline code, fenced code blocks, bullet and
-numbered lists (nested by indentation) and links `[text](url)`. Anything else, HTML too,
+numbered lists (nested by indentation) and links `[text](url)`; in a task's description
+Yougile drops inline code, so it shows as plain text there. Anything else, HTML too,
 shows as plain text. Write each paragraph on one line: Yougile shows every line break.
 `get` shows text as Yougile keeps it: descriptions in HTML, comments as you wrote them.
 
@@ -95,7 +97,7 @@ shows as plain text. Write each paragraph on one line: Yougile shows every line 
 The project's repository keeps its Yougile settings in `.lado/tracker.yaml`; the script
 finds it from the current directory up to the repository root. Only `board` is required;
 an action that needs a missing setting names it (exit 3). The file is a strict subset of
-YAML: `key: value` lines, one level of nesting, `[a, b]` lists, `#` comments.
+YAML: `key: value` lines, one level of nesting, `#` comments.
 
 ```yaml
 board: Development            # the board's title, or its id when the title is not unique
@@ -116,7 +118,7 @@ the script crashing: exit 1, and a write may have been applied (the end of this 
 Any other message that does not start with `yougile.py` or `usage: yougile.py` comes from
 `uv` or Python before the script ran, so nothing reached Yougile: if it says it cannot
 open `yougile.py`, fix the path (see above); otherwise (uv could not get Python or write
-its cache; its exit 2 is not wrong arguments) report all of it as exit 1. To **report** a
+its cache; its exit 2 is not wrong arguments) report all of it (nothing was sent). To **report** a
 failure: as a worker, send the supervisor that line and the command with `send_message`;
 as the lead, tell the human. Then wait for the answer if your step cannot go on without
 the tracker; otherwise go on with it. Act on the exit code:
@@ -125,11 +127,11 @@ the tracker; otherwise go on with it. Act on the exit code:
 |---|---|---|
 | 1 | the script crashed | report its last line |
 | 2 | wrong arguments, or empty text | fix the command (`--help`) |
-| 3 | `.lado/tracker.yaml` missing, invalid, or lacks a setting; the board, or a label's sticker or state, is not found | report it; the user fixes the file |
+| 3 | `.lado/tracker.yaml` missing, invalid, or lacks a setting; the board, a column a word of `statuses` names, or a label's sticker or state, is not found | report it; the user fixes the file |
 | 4 | `YOUGILE_API_KEY` is unset, or `YOUGILE_URL` is wrong (not `https://`, a redirect, not Yougile's answer) | report it; the user fixes their shell profile and restarts the session |
-| 5 | the API key is refused | stop using Yougile and report it; as the line says, every agent stops using Yougile until the human fixes the key, and the lead tells them |
+| 5 | the API key is refused | stop using Yougile and report it; as the line says, every agent stops using Yougile until the human puts a new key in the profile and restarts the session, and the lead tells them |
 | 6 | no access to the task or board | report what you tried; look for no way around |
-| 7 | task not found | check the key; report it if the key came from someone else |
+| 7 | task not found, or not on the project's board | check the key; report it if the key came from someone else |
 | 9 | Yougile not reachable or did not answer | report it (network or VPN?) and send Yougile nothing more until you are told it answers again |
 | 10 | TLS failed | report it: a corporate CA goes in a file named by `SSL_CERT_FILE` |
 | 11 | Yougile refused the request, a status is not a column, an email is no account, or `assign` refused a task another account holds | read the line, fix the request once; if it still fails, report it (`assign`: report it, never try another email or `--reassign` on your own) |
@@ -137,5 +139,7 @@ the tracker; otherwise go on with it. Act on the exit code:
 
 A failed write may have been applied. After exit 9 on a write, once you are told Yougile
 answers again, `get` before running it again; after exit 1 or a 5xx exit 12 on a write,
-there is nothing to wait for: `get` before running it again. Whatever the code, never
+there is nothing to wait for: `get` before running it again. A failed `create` has no
+key to `get`: look for the task with `search --text '<title>'` before running `create`
+again, as its line says. Whatever the code, never
 guess the task's state from a failed run: say what failed.

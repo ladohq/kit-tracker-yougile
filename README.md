@@ -1,7 +1,7 @@
 # kit-tracker-yougile
 
-A LADO kit for Yougile (yougile.com, or a company's self-hosted Yougile) through its REST
-API v2. It gives the roles of any process kit a skill named `tracker` that searches,
+A LADO kit for Yougile (yougile.com; a company's self-hosted Yougile is untried) through
+its REST API v2. It gives the roles of any process kit a skill named `tracker` that searches,
 reads, creates, moves, comments on, assigns and labels tasks, links a URL to them and
 says which account it works as, through a script on Python's standard library, run by
 `uv` (no MCP server). The skill's actions have the names of `tracker-jira-server`'s, so a
@@ -11,9 +11,10 @@ The kit has no agents and no flows: it adds the skill to a session led by a proc
 A process kit's roles say "use the tracker skill"; a role that cannot work without it
 lists `skills: [tracker]`, so a session without a tracker kit refuses to start.
 
-Where it was tried: so far only against a fake Yougile in its tests. The trial on a live
-board in Yougile's cloud comes before the first release. Only the cloud is tried: a
-self-hosted Yougile (`YOUGILE_URL`) serves the same API but has not been tried.
+Where it was tried: against a fake Yougile in its tests, and on 2026-10-10 on a live board
+in Yougile's cloud, where every action worked, except moving a task between columns, which
+is not tried yet (the trial board had one column). Only the cloud is tried: a self-hosted
+Yougile (`YOUGILE_URL`) serves the same API but has not been tried.
 
 ## Install and start
 
@@ -30,22 +31,27 @@ Yougile.
 
 The script works with an API key from a variable of the user's login shell, which LADO's
 agents inherit; it never sees your password. Make the key once, with your Yougile login
-and password (an account has at most 30 keys; a key does not expire):
+and password (an account has at most 30 keys; a key does not expire). The password is
+read without echo and never put on a command line, so it stays out of the shell's history
+(zsh):
 
 ```bash
+read 'YG_LOGIN?Login: '; read -s 'YG_PASS?Password: '; echo
 # the companies your account is in, with their ids
 curl -s https://yougile.com/api-v2/auth/companies -H 'Content-Type: application/json' \
-  -d '{"login": "you@example.com", "password": "<password>"}'
+  -d "{\"login\": \"$YG_LOGIN\", \"password\": \"$YG_PASS\"}"
 # a key for one of them
 curl -s https://yougile.com/api-v2/auth/keys -H 'Content-Type: application/json' \
-  -d '{"login": "you@example.com", "password": "<password>", "companyId": "<id>"}'
+  -d "{\"login\": \"$YG_LOGIN\", \"password\": \"$YG_PASS\", \"companyId\": \"<id>\"}"
+unset YG_PASS
 ```
 
-Keep the key in the OS keychain, not in the profile. On macOS:
+Keep the key in the OS keychain, not in the profile. On macOS, `-w` given last makes
+`security` ask for the key without echo, so it stays out of the history too:
 
 ```bash
-security add-generic-password -s yougile -a "$USER" -w '<the key>'   # once
-# ~/.zprofile
+security add-generic-password -s yougile -a "$USER" -w   # once; paste the key
+# ~/.zprofile or ~/.zshrc (LADO reads the environment through zsh -ilc, so both work)
 export YOUGILE_API_KEY="$(security find-generic-password -s yougile -a "$USER" -w)"
 ```
 
@@ -63,26 +69,19 @@ file with that CA; verification is never turned off.
 Check the key once before a session, from the project's repository:
 `uv run --quiet --script <kit>/skills/tracker/yougile.py whoami`, where `<kit>` is the
 kit's folder (`lado kits show tracker-yougile` prints it). A refused key is never
-retried: make a new one.
+retried: make a new one, put it in the keychain, and restart the session, since running
+agents keep the environment they started with.
 
 ## Project settings: `.lado/tracker.yaml`
 
 Each project commits its settings to its own repository, so every worktree has them. Only
-`board` is required:
-
-```yaml
-board: Development            # the board's title, or its id when the title is not unique
-statuses:                     # words process kits use -> a column of the board
-  in progress: In progress
-  review: Review
-  done: Done
-labels:                       # a label word -> 'Sticker: State' of a sticker on the board
-  waiting for release: 'Release: Waiting'
-```
+`board` is required (the board's title, or its id when the title is not unique);
+`statuses` maps the words process kits use to columns, and `labels` maps label words to a
+sticker's state. The example and the format, a strict subset of YAML, are in
+[`skills/tracker/SKILL.md`](skills/tracker/SKILL.md), "Project settings".
 
 Statuses are the board's columns; write column, sticker and state names as Yougile shows
-them. The skill's `transition` action without a target lists the columns. The format, a
-strict subset of YAML, is in [`skills/tracker/SKILL.md`](skills/tracker/SKILL.md).
+them. The skill's `transition` action without a target lists the columns.
 
 ## What agents write
 
