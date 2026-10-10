@@ -99,9 +99,11 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   (R12), and the README says so. `YOUGILE_URL` is
   `https://`, or `http://` to localhost for tests. The script never asks for, prints or
   writes the key; it never sees the user's password. The README shows how to make a key
-  once (`POST /api-v2/auth/companies`, then `POST /api-v2/auth/keys`, with curl) and keep
-  it in the OS keychain, read in the profile (macOS `security` example, the "Always
-  Allow" note of `tracker-jira-server`). TLS is verified through the system store or
+  once (`POST /api-v2/auth/companies`, then `POST /api-v2/auth/keys`, with curl) and set
+  it in `YOUGILE_API_KEY` in the login shell's profile; keeping it in the OS keychain is
+  an optional example (macOS `security`, able to replace an old key), not a requirement
+  (the human at the second release gate: "F12.2 — это решение только для macOS … надо
+  просто записать ключ в переменную окружения"). TLS is verified through the system store or
   `SSL_CERT_FILE`, never disabled. *Source:* brief, "Login"; design round Q1, Q2
   ("согласен").
 - **R8** What agents write in Yougile in the user's name is marked by the script: every
