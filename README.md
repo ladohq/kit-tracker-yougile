@@ -11,9 +11,9 @@ The kit has no agents and no flows: it adds the skill to a session led by a proc
 A process kit's roles say "use the tracker skill"; a role that cannot work without it
 lists `skills: [tracker]`, so a session without a tracker kit refuses to start.
 
-Where it was tried: so far only against a fake Yougile in its tests. The trial on a
-real Yougile, its self-hosted server run locally in Docker (`tests/yougile-server/`),
-comes before the first release; the cloud has not been tried.
+Where it was tried: so far only against a fake Yougile in its tests. The trial on a live
+board in Yougile's cloud comes before the first release. Only the cloud is tried: a
+self-hosted Yougile (`YOUGILE_URL`) serves the same API but has not been tried.
 
 ## Install and start
 
@@ -54,8 +54,8 @@ stalls every agent's start: run the line once in a new terminal and allow `secur
 read the item ("Always Allow") before the first session.
 
 `YOUGILE_URL` is optional: it defaults to `https://yougile.com`. For a self-hosted
-Yougile, set it to that server's address (it serves the same API v2, by default on port
-8001), e.g. `export YOUGILE_URL=https://yougile.example.com`. The script refuses an
+Yougile, set it to that server's address (it serves the same API v2; not tried, see above),
+e.g. `export YOUGILE_URL=https://yougile.example.com`. The script refuses an
 address that is not `https://` (or `http://` to localhost, for tests), since the key goes
 with every request. If the certificate is from a corporate CA, point `SSL_CERT_FILE` at a
 file with that CA; verification is never turned off.
@@ -104,5 +104,4 @@ uv run --no-project python -m unittest discover -s tests   # the script against 
 lado kits check .
 ```
 
-`tests/yougile-server/` runs Yougile's self-hosted server in Docker for a trial on a real
-Yougile (its README). `BLUEPRINT.md` says why each part of the kit exists.
+`BLUEPRINT.md` says why each part of the kit exists.
