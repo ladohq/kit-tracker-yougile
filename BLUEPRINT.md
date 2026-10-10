@@ -65,10 +65,15 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   before it: the API has no external-link object and no GitHub/GitLab binding.
 - **R4** Tasks are named by the key people see in Yougile, `idTaskProject` (e.g.
   `DEV-484`): the script prints it everywhere and accepts it in every action; it also
-  accepts the task's id (a UUID). The key is short and stable, as process kits use it to
-  name runs, branches and changes. The API documents `GET /api-v2/tasks/{id}` by id and
-  has no filter by key, so the script finds a key among the board's tasks; a key not on
-  the board is "not found" (exit 7). *Source:* brief, "Task keys"; design round Q3.
+  accepts the company-wide number `idTaskCommon` (e.g. `ID-188`, also shown in Yougile's
+  UI) and the task's id (a UUID). The key is short and stable, as process kits use it to
+  name runs, branches and changes. The script reads a task with one `GET
+  /api-v2/tasks/{key}`, which takes either key (found in the trial on the cloud board,
+  artifact `trial`), so a lookup costs one request under the rate limit; a task whose
+  column is not on the project's board is "not found" (exit 7). *Source:* brief, "Task
+  keys"; design round Q3; the human at the release gate of run `create/tracker-yougile`
+  (rejected: "ключ искать прямым GET /tasks/{ключ} … и принимать оба вида ключа,
+  показывая LAD-1").
 - **R5** No MCP server. The skill reaches Yougile with `skills/tracker/yougile.py`, on
   Python's standard library only, run by `uv` (`uv run --quiet --script`, inline metadata
   naming the Python and no dependencies). `kit.yaml` names `uv` in `expects.commands`,
