@@ -1,5 +1,5 @@
 name: tracker-yougile
-version: 0.1.0
+version: 0.1.1
 description: >-
   The tracker skill for Yougile (REST API v2; tried on the cloud, self-hosted untried): search, get, create,
   transition, comment on, assign and label tasks, link a URL to a task, and whoami, with a
