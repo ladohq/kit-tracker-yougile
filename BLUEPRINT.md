@@ -9,10 +9,9 @@ in its repository. It is the Yougile counterpart of `tracker-jira-server` 1.2.0
 (github.com/ladohq/kit-tracker-jira-server), and keeps its action names, so a process
 kit's text fits both.
 
-Sources: `BRIEF.md` at the repository root (commit ca6bcac); the design round of run
-`create/tracker-yougile` (session `tracker-yougile`, LADO messages #2347, the answers
-to questions #2363, #2382 and #2440, the reason of the first `design_ok` reject, the
-human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/api-json`
+Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, removed in
+0.1.1; cited below as "brief"); the human's answers in the design round of run
+`create/tracker-yougile` and at its gates; Yougile's OpenAPI description `https://ru.yougile.com/api-json`
 ("YouGile REST API v2.0", read 2026-10-10), cited below as "API".
 
 ## 1. Requirements
@@ -41,7 +40,8 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   - `transition`: without a target, lists the columns of the board the task can move to
     (its current one marked); with a target (a column title, a column id, or a word of `statuses`),
     moves the task by changing its column. A task already there changes nothing and says
-    so (success). `--comment` posts a comment after the move. Moving does not touch
+    so (success). `--comment` posts a comment after the move; without a target it is
+    refused (exit 2), never dropped. Moving does not touch
     Yougile's "completed" flag.
   - `comment`: posts a message to the task's chat and prints its id.
   - `assign`: to the account `whoami` names (`me`), to an email, or `none`; the task then
@@ -63,11 +63,11 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   `unassigned`, so a task's assignee compares with `whoami`. Nothing else (no delete,
   boards, sprints, checklists, files); more is added when a project needs it.
   *Source:* brief, "The contract `tracker` must keep" 1–7; design round Q3, Q4, Q5, Q6,
-  Q8 ("согласен"); link: the human's answer to #2363, "Только комментарий"; the research
+  Q8 ("согласен"); link: the human's answer, "Только комментарий"; the research
   before it: the API has no external-link object and no GitHub/GitLab binding.
 - **R4** Tasks are named by the key people see in Yougile, `idTaskProject` (e.g.
   `DEV-484`): the script prints it everywhere and accepts it in every action; it also
-  accepts the company-wide number `idTaskCommon` (e.g. `ID-188`, also shown in Yougile's
+  accepts the company-wide number `idTaskCommon` (e.g. `ID-484`, also shown in Yougile's
   UI) and the task's id (a UUID). The key is short and stable, as process kits use it to
   name runs, branches and changes. The script reads a task with one `GET
   /api-v2/tasks/{key}`, which takes either key (found in the trial on the cloud board,
@@ -75,7 +75,7 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   column is not on the project's board is "not found" (exit 7). *Source:* brief, "Task
   keys"; design round Q3; the human at the release gate of run `create/tracker-yougile`
   (rejected: "ключ искать прямым GET /tasks/{ключ} … и принимать оба вида ключа,
-  показывая LAD-1").
+  показывая" the project key).
 - **R5** No MCP server. The skill reaches Yougile with `skills/tracker/yougile.py`, on
   Python's standard library only, run by `uv` (`uv run --quiet --script`, inline metadata
   naming the Python and no dependencies). `kit.yaml` names `uv` in `expects.commands`,
@@ -99,7 +99,9 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   (R12), and the README says so. `YOUGILE_URL` is
   `https://`, or `http://` to localhost for tests. The script never asks for, prints or
   writes the key; it never sees the user's password. The README shows how to make a key
-  once (`POST /api-v2/auth/companies`, then `POST /api-v2/auth/keys`, with curl) and set
+  once (`POST /api-v2/auth/companies`, then `POST /api-v2/auth/keys`, with curl, sent to
+  `${YOUGILE_URL:-https://yougile.com}` so a self-hosted user's login and password never
+  go to the cloud) and set
   it in `YOUGILE_API_KEY` in the login shell's profile; keeping it in the OS keychain is
   an optional example (macOS `security`, able to replace an old key), not a requirement
   (the human at the second release gate: "F12.2 — это решение только для macOS … надо
@@ -145,17 +147,17 @@ human's message #2439); Yougile's OpenAPI description `https://ru.yougile.com/ap
   `YOUGILE_API_KEY` the human puts in the login shell's profile; every write of the trial
   goes to that board only. The facts the API leaves open (whether `GET /tasks/{id}` takes
   a key, that a task's chat id is the task's id, the order of columns, the shape of 401
-  and 429 answers) are checked there. The trial of 2026-10-10 (artifact `trial`, board
-  "polygon", account `ladohq@yandex.ru`) passed for all nine actions and found that
+  and 429 answers) are checked there. The trial of 2026-10-10 (artifact `trial` of run
+  `create/tracker-yougile`, a test board and a test account in the cloud) passed for all nine actions and found that
   `GET /tasks/{id}` takes both keys (R4), that the chat id is the task id, that columns
   come in the board's order, and that Yougile strips inline code from descriptions (kept
   in comments; SKILL.md says so, R9); a 429 did not occur. No local or self-hosted
   Yougile is kept in the kit's repository.
   *Source:* brief, "What to carry over"; design round Q10 ("решим в процессе работы");
-  the human, message #2439, after the self-hosted server could not be downloaded
+  the human, after the self-hosted server could not be downloaded
   (dist.yougile.com unreachable through the VPN): "будет надежнее тестировать на живой
-  доске в облаке. Я не хочу «костылить»", replacing the answer to #2382; the trial
-  board and account: answer to #2440.
+  доске в облаке. Я не хочу «костылить»", replacing an earlier choice of a local
+  self-hosted server in Docker; the trial board and account are the human's.
 
 Decided in the design round, not requirements of this kit: the shared contract of status
 words between process and tracker kits stays with `sdlc` (its backlog, R16); this kit's
@@ -179,6 +181,7 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 
 | Element | Kind | Covers | Why it exists / why nothing simpler |
 |---|---|---|---|
+| 2026-10-10 | 0.1.1 | No trace of the trial's project: example key `ID-484` instead of a real one (SKILL.md, yougile.py, R4); BLUEPRINT and BACKLOG without the test board's, account's and task's names (F12.1–F12.3) and without the build session's message numbers (F9.1); `BRIEF.md` removed. README: `read -r`/`-rs` (F12.4); key requests go to `${YOUGILE_URL:-https://yougile.com}` (F12.5, R7). Repeated column titles shown with their ids, no "rename" advice (F3.1). `transition --comment` without a target refused (F3.2, R3) | The human: "кит должен работать с любым проектом"; report `kit-reports/tracker-yougile-0.1.0-2026-10-10.md` (1070353, full assessment of d41dd09); triage of run `improve/tracker-yougile-0-1-1`: "Всё как рекомендуешь" |
 | `kit.yaml` | manifest | R1, R2, R5 | name, version, description naming the nine actions; `expects.commands: [uv]`, `dependencies.lado: ">=0.30"`; no `supervisor:`, no `dependencies.skills` |
 | `uv` | command (expects) | R5 | runs `yougile.py` with the Python its metadata names on every project; a session without it does not start instead of failing at the first action |
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R4, R6, R8, R9, R10, R11 | the one skill the convention names; how to run each action, keys, Markdown, the settings with an example, the write scope, what each exit code means and what to do |
@@ -207,6 +210,7 @@ Output of the `kit-budget` script on the built kit (commit of the build, 2026-10
 
 | Measure | Where | Value | Green / yellow up to | Zone | Reason, when not green |
 |---|---|---|---|---|---|
+| 2026-10-10 | 0.1.1 | No trace of the trial's project: example key `ID-484` instead of a real one (SKILL.md, yougile.py, R4); BLUEPRINT and BACKLOG without the test board's, account's and task's names (F12.1–F12.3) and without the build session's message numbers (F9.1); `BRIEF.md` removed. README: `read -r`/`-rs` (F12.4); key requests go to `${YOUGILE_URL:-https://yougile.com}` (F12.5, R7). Repeated column titles shown with their ids, no "rename" advice (F3.1). `transition --comment` without a target refused (F3.2, R3) | The human: "кит должен работать с любым проектом"; report `kit-reports/tracker-yougile-0.1.0-2026-10-10.md` (1070353, full assessment of d41dd09); triage of run `improve/tracker-yougile-0-1-1`: "Всё как рекомендуешь" |
 | Worker roles (not supervisor) | kit | 0 | 3 / 5 | green | |
 | Work steps in a flow | no flows | 0 | 5 / 8 | green | |
 | Gates in a flow | no flows | 0 | 2 / 3 | green | |
@@ -223,3 +227,4 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-10 | 0.1.1 | No trace of the trial's project: example key `ID-484` instead of a real one (SKILL.md, yougile.py, R4); BLUEPRINT and BACKLOG without the test board's, account's and task's names (F12.1–F12.3) and without the build session's message numbers (F9.1); `BRIEF.md` removed. README: `read -r`/`-rs` (F12.4); key requests go to `${YOUGILE_URL:-https://yougile.com}` (F12.5, R7). Repeated column titles shown with their ids, no "rename" advice (F3.1). `transition --comment` without a target refused (F3.2, R3) | The human: "кит должен работать с любым проектом"; report `kit-reports/tracker-yougile-0.1.0-2026-10-10.md` (1070353, full assessment of d41dd09); triage of run `improve/tracker-yougile-0-1-1`: "Всё как рекомендуешь" |
