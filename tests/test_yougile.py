@@ -315,7 +315,9 @@ class ConfigTest(unittest.TestCase):
     def test_errors_name_the_line(self):
         cases = {
             "board: A\n\tstatuses:\n": "line 2: indent with spaces",
-            "board: A\nstatuses:\n  - a\n": "line 3: block lists",
+            "board: A\nstatuses:\n  - a\n": "line 3: lists are not supported: every value "
+                                         "is one plain value",
+            "board: [A, B]\n": "line 1: lists are not supported",
             "board: A\nstatuses:\n  a:\n    b: c\n": "line 3: .*one level",
             "board A\n": "line 1: expected 'key: value'",
             "board: A\nboard: B\n": "line 2: 'board' is given twice",
@@ -324,7 +326,7 @@ class ConfigTest(unittest.TestCase):
             "board: {a: b}\n": "line 1: .*flow maps",
             "board: A\nproject: B\n": "line 2: unknown key 'project'",
             "board: A\nlabels:\n  x: NoState\n": "line 3: 'labels.x' must be 'Sticker: State'",
-            "board: A\nstatuses: [a]\n": "line 2: 'statuses' must be a map",
+            "board: A\nstatuses: a\n": "line 2: 'statuses' must be a map",
             "---\nboard: A\n": "line 1: one document only",
         }
         for text, pattern in cases.items():
@@ -454,6 +456,16 @@ class CommandsTest(YougileTestCase):
         self.assertEqual(len(self.sent("GET", "tasks/dev-1")), 1)
         self.assertEqual(self.sent("GET", "task-list"), [])
 
+    def test_statuses_column_by_id_and_ambiguous_title(self):
+        self.write_config("board: Dev\nstatuses:\n  review: %s\n" % REVIEW)
+        code, out, err = self.run_yougile("transition", "DEV-1", "review")
+        self.assertEqual((code, out), (0, "DEV-1: To do -> Review\n"), err)
+        self.api.data["columns"].append({"id": uid(16), "title": "Review", "boardId": BOARD})
+        self.write_config("board: Dev\nstatuses:\n  review: Review\n")
+        self.assertFails(yougile.CONFIG, "is the title of several columns: rename one of "
+                                         "them, or write its id", "transition", "DEV-1",
+                         "review")
+
     def test_get_by_number_and_id_shows_the_key(self):
         for name in ("ID-12", "id-12", T2):
             with self.subTest(name=name):
@@ -509,8 +521,9 @@ class CommandsTest(YougileTestCase):
     def test_create_failure_says_search_not_get(self):
         self.api.route("POST", "tasks", {"error": "boom"}, status=502)
         err = self.assertFails(yougile.SERVER_ERROR, "may have been applied: look for it with "
-                                                     "search --text 'New' before running "
-                                                     "create again", "create", "--title", "New")
+                                                     "search --text 'Don'\"'\"'t crash' "
+                                                     "before running create again",
+                               "create", "--title", "Don't crash")
         self.assertNotIn("check with get", err)
 
     def test_create_key_not_read_back(self):
@@ -649,6 +662,8 @@ class CommandsTest(YougileTestCase):
         self.write_config(CONFIG + "  gone: 'Release: Lost'\n")
         code, out, err = self.run_yougile("label", "DEV-4", "--add", "shipped")
         self.assertEqual((code, out), (0, "DEV-4: labels shipped\n"), err)
+        _, out, _ = self.run_yougile("get", "DEV-4")
+        self.assertIn("Labels: shipped\n", out)
 
     def test_label_mapping_not_on_board(self):
         self.write_config("board: Dev\nlabels:\n  x: 'Release: Lost'\n")
@@ -736,7 +751,7 @@ class ErrorsTest(YougileTestCase):
 
     def test_settings_missing_or_wrong(self):
         self.write_config("board: Dev\nstatuses:\n  - a\n")
-        self.assertFails(yougile.CONFIG, "line 3: block lists", "search")
+        self.assertFails(yougile.CONFIG, "line 3: lists are not supported", "search")
         self.assertEqual(self.api.requests, [])
         os.remove(os.path.join(self.repo, ".lado", "tracker.yaml"))
         self.assertFails(yougile.CONFIG, "tracker.yaml not found", "search")

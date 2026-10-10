@@ -21,6 +21,7 @@ import http.client
 import json
 import os
 import re
+import shlex
 import socket
 import ssl
 import sys
@@ -53,8 +54,8 @@ APPLIED = ("; the change may have been applied: once Yougile answers again, chec
            "get before running it again")
 # Yougile answered a 5xx, so nobody will say it answers again: check before running again.
 APPLIED_ANSWERED = "; the change may have been applied: check with get before running it again"
-STOP_ALL = ("; the lead tells every agent to stop using Yougile until the human puts a "
-            "new key in the login shell's profile and restarts the session")
+STOP_ALL = ("; the lead tells every agent to stop using Yougile until the human sets a new "
+            "key in YOUGILE_API_KEY and restarts the session")
 WAIT = "; send Yougile nothing more until you are told it answers again"
 NOT_YOUGILE = ("the answer is not Yougile's API: YOUGILE_URL is not Yougile's address "
                "(https://yougile.com, or your self-hosted Yougile's)")
@@ -101,23 +102,18 @@ def _scalar(text, where):
     return text
 
 
+NO_LISTS = "lists are not supported: every value is one plain value"
+
+
 def _value(text, where):
     text = text.strip()
     if text.startswith("["):
-        if not text.endswith("]"):
-            raise ValueError(where + "an inline list must end with ']'")
-        inner = text[1:-1].strip()
-        if not inner:
-            return []
-        items = [_scalar(item, where) for item in inner.split(",")]
-        if any(not item for item in items):
-            raise ValueError(where + "an empty item in the list")
-        return items
+        raise ValueError(where + NO_LISTS)
     return _scalar(text, where)
 
 
 def parse_config(text, path):
-    """Parse the subset: `key: value`, one level of nested maps, `[a, b]`, `#` comments."""
+    """Parse the subset: `key: value`, one level of nested maps, `#` comments."""
     data = {}
     lines = {}
     section = None
@@ -132,7 +128,7 @@ def parse_config(text, path):
         depth = len(line) - len(line.lstrip(" "))
         body = line.strip()
         if body.startswith("- "):
-            raise ValueError(where + "block lists are not supported; write [a, b]")
+            raise ValueError(where + NO_LISTS)
         if body in ("---", "..."):
             raise ValueError(where + "one document only; remove '%s'" % body)
         key, colon, rest = body.partition(":")
@@ -415,11 +411,12 @@ class Yougile:
         """A column of the board by its title, its id, or a word of `statuses`."""
         title = config["statuses"].get(target, target)
         columns = self.columns(config)
-        match = [c for c in columns if c.get("id") == target]
+        match = [c for c in columns if c.get("id") in (target, title)]
         match = match or [c for c in columns
                           if (c.get("title") or "").casefold() == title.casefold()]
         if len(match) != 1:
-            problem = "is ambiguous" if match else "is not a column of the board"
+            problem = ("is the title of several columns: rename one of them, or write its id"
+                       if match else "is not a column of the board")
             if target in config["statuses"]:
                 raise Failure(CONFIG, "'statuses.%s: %s' in %s %s; its columns: %s; the "
                                       "user fixes the file" % (target, title, CONFIG_PATH,
@@ -765,14 +762,9 @@ def cmd_get(api, args):
                             "   (%s)" % ", ".join(flags) if flags else ""))
     print("Assignees: %s" % _assignees(api, task.get("assigned") or []))
     if config["labels"]:
-        try:
-            stickers = _stickers(api, config)
-            resolved = {w: _resolve_label(stickers, config, w) for w in config["labels"]}
-            print("Labels: %s" % (", ".join(_labels_of(task, resolved)) or "none"))
-        except Failure as failure:
-            if failure.code != CONFIG:
-                raise
-            print("Labels: not shown, %s" % failure.message)
+        # Words whose sticker or state the board no longer has are left out, as in label.
+        resolved = _resolvable(_stickers(api, config), config, config["labels"])
+        print("Labels: %s" % (", ".join(_labels_of(task, resolved)) or "none"))
     print("\nDescription:\n%s" % (task.get("description") or "(empty)"))
     messages = [m for m in api.pages("chats/%s/messages" % task["id"])
                 if not m.get("deleted")]
@@ -812,7 +804,8 @@ def cmd_create(api, args):
         # A task that may have been created has no key yet: look for it by its title.
         failure.message = failure.message.replace(
             "check with get before running it again",
-            "look for it with search --text '%s' before running create again" % args.title)
+            "look for it with search --text %s before running create again"
+            % shlex.quote(args.title))
         raise
     task_id = (created or {}).get("id")
     try:

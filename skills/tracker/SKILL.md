@@ -101,7 +101,7 @@ YAML: `key: value` lines, one level of nesting, `#` comments.
 
 ```yaml
 board: Development            # the board's title, or its id when the title is not unique
-statuses:                     # words process kits use -> a column of the board
+statuses:                     # words process kits use -> a column (title, or id if repeated)
   in progress: In progress
   review: Review
   done: Done
@@ -129,7 +129,7 @@ the tracker; otherwise go on with it. Act on the exit code:
 | 2 | wrong arguments, or empty text | fix the command (`--help`) |
 | 3 | `.lado/tracker.yaml` missing, invalid, or lacks a setting; the board, a column a word of `statuses` names, or a label's sticker or state, is not found | report it; the user fixes the file |
 | 4 | `YOUGILE_API_KEY` is unset, or `YOUGILE_URL` is wrong (not `https://`, a redirect, not Yougile's answer) | report it; the user fixes their shell profile and restarts the session |
-| 5 | the API key is refused | stop using Yougile and report it; as the line says, every agent stops using Yougile until the human puts a new key in the profile and restarts the session, and the lead tells them |
+| 5 | the API key is refused | stop using Yougile and report it; as the line says, every agent stops using Yougile until the human sets a new key in `YOUGILE_API_KEY` and restarts the session, and the lead tells them |
 | 6 | no access to the task or board | report what you tried; look for no way around |
 | 7 | task not found, or not on the project's board | check the key; report it if the key came from someone else |
 | 9 | Yougile not reachable or did not answer | report it (network or VPN?) and send Yougile nothing more until you are told it answers again |

@@ -29,29 +29,37 @@ Yougile.
 
 ## Credentials
 
-The script works with an API key from a variable of the user's login shell, which LADO's
-agents inherit; it never sees your password. Make the key once, with your Yougile login
-and password (an account has at most 30 keys; a key does not expire). The password is
-read without echo and never put on a command line, so it stays out of the shell's history
-(zsh):
+The script works with an API key in the variable `YOUGILE_API_KEY` of the user's login
+shell, which LADO's agents inherit; it never sees your password. Make the key once, with
+your Yougile login and password (an account has at most 30 keys; a key does not expire).
+The password is read without echo and goes to `curl` on its stdin, so it is neither in
+the shell's history nor in the process list (zsh; a password with `"` or `\` breaks this
+JSON, so escape those characters as `\"` and `\\` when you type it):
 
 ```bash
 read 'YG_LOGIN?Login: '; read -s 'YG_PASS?Password: '; echo
 # the companies your account is in, with their ids
-curl -s https://yougile.com/api-v2/auth/companies -H 'Content-Type: application/json' \
-  -d "{\"login\": \"$YG_LOGIN\", \"password\": \"$YG_PASS\"}"
+printf '{"login": "%s", "password": "%s"}' "$YG_LOGIN" "$YG_PASS" |
+  curl -s https://yougile.com/api-v2/auth/companies -H 'Content-Type: application/json' -d @-
 # a key for one of them
-curl -s https://yougile.com/api-v2/auth/keys -H 'Content-Type: application/json' \
-  -d "{\"login\": \"$YG_LOGIN\", \"password\": \"$YG_PASS\", \"companyId\": \"<id>\"}"
+printf '{"login": "%s", "password": "%s", "companyId": "%s"}' "$YG_LOGIN" "$YG_PASS" '<id>' |
+  curl -s https://yougile.com/api-v2/auth/keys -H 'Content-Type: application/json' -d @-
 unset YG_PASS
 ```
 
-Keep the key in the OS keychain, not in the profile. On macOS, `-w` given last makes
-`security` ask for the key without echo, so it stays out of the history too:
+Put the key in `YOUGILE_API_KEY` in your login shell's profile, `~/.zprofile` or
+`~/.zshrc` (LADO reads the environment through `zsh -ilc`, so both work):
 
 ```bash
-security add-generic-password -s yougile -a "$USER" -w   # once; paste the key
-# ~/.zprofile or ~/.zshrc (LADO reads the environment through zsh -ilc, so both work)
+export YOUGILE_API_KEY='<the key>'
+```
+
+On macOS you may keep it in the keychain instead and read it in the profile. `-w` given
+last makes `security` ask for the key without echo; `-U` replaces a key stored before:
+
+```bash
+security add-generic-password -U -s yougile -a "$USER" -w   # paste the key
+# ~/.zprofile or ~/.zshrc
 export YOUGILE_API_KEY="$(security find-generic-password -s yougile -a "$USER" -w)"
 ```
 
@@ -69,8 +77,9 @@ file with that CA; verification is never turned off.
 Check the key once before a session, from the project's repository:
 `uv run --quiet --script <kit>/skills/tracker/yougile.py whoami`, where `<kit>` is the
 kit's folder (`lado kits show tracker-yougile` prints it). A refused key is never
-retried: make a new one, put it in the keychain, and restart the session, since running
-agents keep the environment they started with.
+retried: make a new one, set it in `YOUGILE_API_KEY` as above (with the keychain, run the
+`security` line again), and restart the session, since running agents keep the
+environment they started with.
 
 ## Project settings: `.lado/tracker.yaml`
 
