@@ -181,7 +181,6 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 
 | Element | Kind | Covers | Why it exists / why nothing simpler |
 |---|---|---|---|
-| 2026-10-10 | 0.1.1 | No trace of the trial's project: example key `ID-484` instead of a real one (SKILL.md, yougile.py, R4); BLUEPRINT and BACKLOG without the test board's, account's and task's names (F12.1–F12.3) and without the build session's message numbers (F9.1); `BRIEF.md` removed. README: `read -r`/`-rs` (F12.4); key requests go to `${YOUGILE_URL:-https://yougile.com}` (F12.5, R7). Repeated column titles shown with their ids, no "rename" advice (F3.1). `transition --comment` without a target refused (F3.2, R3) | The human: "кит должен работать с любым проектом"; report `kit-reports/tracker-yougile-0.1.0-2026-10-10.md` (1070353, full assessment of d41dd09); triage of run `improve/tracker-yougile-0-1-1`: "Всё как рекомендуешь" |
 | `kit.yaml` | manifest | R1, R2, R5 | name, version, description naming the nine actions; `expects.commands: [uv]`, `dependencies.lado: ">=0.30"`; no `supervisor:`, no `dependencies.skills` |
 | `uv` | command (expects) | R5 | runs `yougile.py` with the Python its metadata names on every project; a session without it does not start instead of failing at the first action |
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R4, R6, R8, R9, R10, R11 | the one skill the convention names; how to run each action, keys, Markdown, the settings with an example, the write scope, what each exit code means and what to do |
@@ -206,11 +205,10 @@ Reverse check:
 
 ## 4. Complexity budget
 
-Output of the `kit-budget` script on the built kit (commit of the build, 2026-10-10):
+Output of the `kit-budget` script on the built kit (build of 0.1.1, 2026-10-10):
 
 | Measure | Where | Value | Green / yellow up to | Zone | Reason, when not green |
 |---|---|---|---|---|---|
-| 2026-10-10 | 0.1.1 | No trace of the trial's project: example key `ID-484` instead of a real one (SKILL.md, yougile.py, R4); BLUEPRINT and BACKLOG without the test board's, account's and task's names (F12.1–F12.3) and without the build session's message numbers (F9.1); `BRIEF.md` removed. README: `read -r`/`-rs` (F12.4); key requests go to `${YOUGILE_URL:-https://yougile.com}` (F12.5, R7). Repeated column titles shown with their ids, no "rename" advice (F3.1). `transition --comment` without a target refused (F3.2, R3) | The human: "кит должен работать с любым проектом"; report `kit-reports/tracker-yougile-0.1.0-2026-10-10.md` (1070353, full assessment of d41dd09); triage of run `improve/tracker-yougile-0-1-1`: "Всё как рекомендуешь" |
 | Worker roles (not supervisor) | kit | 0 | 3 / 5 | green | |
 | Work steps in a flow | no flows | 0 | 5 / 8 | green | |
 | Gates in a flow | no flows | 0 | 2 / 3 | green | |

@@ -33,7 +33,7 @@ roles and steps may allow more.
 ## Actions
 
 A task is named by the key Yougile shows on it (`DEV-484`), by its company-wide number
-(`ID-188`) or by its id; the script prints the key everywhere. A task of another board
+(`ID-484`) or by its id; the script prints the key everywhere. A task of another board
 is not found (exit 7).
 
 | To | Run |
@@ -51,7 +51,8 @@ is not found (exit 7).
 
 - **Status** is a column of the project's board: a status `S` is a column's title or a
   word of `statuses` in the settings ("review"). `transition` without a target lists the
-  columns, the task's own marked `(current)`; run it first when you are unsure. Moving a
+  columns (a title several columns share with its id), the task's own marked `(current)`;
+  run it first when you are unsure. `--comment` needs a target. Moving a
   task does not tick Yougile's "completed" flag; `get` shows it when someone did.
 - **search** looks at the board's tasks, archived ones left out; `--text` matches words
   of the title. A full page ends with the `--start` of the next one.

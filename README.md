@@ -34,16 +34,18 @@ shell, which LADO's agents inherit; it never sees your password. Make the key on
 your Yougile login and password (an account has at most 30 keys; a key does not expire).
 The password is read without echo and goes to `curl` on its stdin, so it is neither in
 the shell's history nor in the process list (zsh; a password with `"` or `\` breaks this
-JSON, so escape those characters as `\"` and `\\` when you type it):
+JSON, so escape those characters as `\"` and `\\` when you type it). For a self-hosted
+Yougile, set `YOUGILE_URL` (below) first, so your login and password go to your server,
+not to the cloud:
 
 ```bash
-read 'YG_LOGIN?Login: '; read -s 'YG_PASS?Password: '; echo
+read -r 'YG_LOGIN?Login: '; read -rs 'YG_PASS?Password: '; echo
 # the companies your account is in, with their ids
 printf '{"login": "%s", "password": "%s"}' "$YG_LOGIN" "$YG_PASS" |
-  curl -s https://yougile.com/api-v2/auth/companies -H 'Content-Type: application/json' -d @-
+  curl -s "${YOUGILE_URL:-https://yougile.com}/api-v2/auth/companies" -H 'Content-Type: application/json' -d @-
 # a key for one of them
 printf '{"login": "%s", "password": "%s", "companyId": "%s"}' "$YG_LOGIN" "$YG_PASS" '<id>' |
-  curl -s https://yougile.com/api-v2/auth/keys -H 'Content-Type: application/json' -d @-
+  curl -s "${YOUGILE_URL:-https://yougile.com}/api-v2/auth/keys" -H 'Content-Type: application/json' -d @-
 unset YG_PASS
 ```
 

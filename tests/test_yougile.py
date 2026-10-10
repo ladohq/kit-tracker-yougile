@@ -462,9 +462,18 @@ class CommandsTest(YougileTestCase):
         self.assertEqual((code, out), (0, "DEV-1: To do -> Review\n"), err)
         self.api.data["columns"].append({"id": uid(16), "title": "Review", "boardId": BOARD})
         self.write_config("board: Dev\nstatuses:\n  review: Review\n")
-        self.assertFails(yougile.CONFIG, "is the title of several columns: rename one of "
-                                         "them, or write its id", "transition", "DEV-1",
-                         "review")
+        err = self.assertFails(yougile.CONFIG, "is the title of several columns: write the "
+                                               "id of one", "transition", "DEV-1", "review")
+        self.assertNotIn("rename", err)
+        self.assertIn("Review (%s), Done, Review (%s)" % (REVIEW, uid(16)), err)
+
+    def test_transition_lists_repeated_titles_with_ids(self):
+        self.api.data["columns"].append({"id": uid(16), "title": "review", "boardId": BOARD})
+        code, out, _ = self.run_yougile("transition", "DEV-2")
+        self.assertEqual(out, "To do\nIn progress   (current)\nReview (%s)\nDone\n"
+                              "review (%s)\n" % (REVIEW, uid(16)))
+        code, out, err = self.run_yougile("transition", "DEV-2", uid(16))
+        self.assertEqual((code, out), (0, "DEV-2: In progress -> review\n"), err)
 
     def test_get_by_number_and_id_shows_the_key(self):
         for name in ("ID-12", "id-12", T2):
@@ -558,6 +567,11 @@ class CommandsTest(YougileTestCase):
             with self.subTest(argv=argv):
                 self.assertFails(yougile.NOT_FOUND, "not found on board 'Dev'", *argv)
         self.assertEqual(self.api.data["messages"].get(T2, []), [])
+
+    def test_transition_comment_needs_a_target(self):
+        self.assertFails(yougile.USAGE, "--comment needs a target", "transition", "DEV-2",
+                         "--comment", "Ready")
+        self.assertEqual(self.api.requests, [])
 
     def test_transition_comment_failure_keeps_the_move(self):
         self.api.route("POST", "chats/%s/messages" % T2, {"message": "bad"}, status=400)

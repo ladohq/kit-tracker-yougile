@@ -9,7 +9,7 @@ Commands: search, get, create, transition, comment, assign, label, link, whoami 
 --help). Credentials come from YOUGILE_API_KEY and YOUGILE_URL (optional, default
 https://yougile.com, or a self-hosted Yougile's address); the key is never printed.
 Tasks are named by the key people see (idTaskProject, e.g. DEV-484), the company-wide
-number (idTaskCommon, e.g. ID-188) or their id; tasks of other boards are not found.
+number (idTaskCommon, e.g. ID-484) or their id; tasks of other boards are not found.
 Text sent to Yougile is Markdown, converted to HTML. Project settings come from
 .lado/tracker.yaml, found from the current directory up to the repository root.
 Python standard library only, run by `uv run --script`.
@@ -415,7 +415,7 @@ class Yougile:
         match = match or [c for c in columns
                           if (c.get("title") or "").casefold() == title.casefold()]
         if len(match) != 1:
-            problem = ("is the title of several columns: rename one of them, or write its id"
+            problem = ("is the title of several columns: write the id of one"
                        if match else "is not a column of the board")
             if target in config["statuses"]:
                 raise Failure(CONFIG, "'statuses.%s: %s' in %s %s; its columns: %s; the "
@@ -430,7 +430,7 @@ class Yougile:
                 if not t.get("deleted")]
 
     def task(self, config, key):
-        """The task named by its key (DEV-484), its number (ID-188) or its id, on the board.
+        """The task named by its key (DEV-484), its number (ID-484) or its id, on the board.
 
         One request: GET /tasks/{key} takes any of the three (tried on Yougile's cloud).
         """
@@ -502,8 +502,16 @@ def key_of(task):
     return task.get("idTaskProject") or task.get("id")
 
 
+def column_name(column, columns):
+    """The column's title, with its id when another column has the same title."""
+    title = column.get("title") or "?"
+    if sum((c.get("title") or "?").casefold() == title.casefold() for c in columns) > 1:
+        return "%s (%s)" % (title, column.get("id"))
+    return title
+
+
 def column_list(columns):
-    return ", ".join(c.get("title") or "?" for c in columns) or "none"
+    return ", ".join(column_name(c, columns) for c in columns) or "none"
 
 
 # --- Markdown -> HTML: a minimal subset, the rest passes as text -----------------------
@@ -818,6 +826,9 @@ def cmd_create(api, args):
 
 
 def cmd_transition(api, args):
+    if args.comment is not None and not args.target:
+        raise Failure(USAGE, "--comment needs a target: transition %s <status> --comment ..."
+                      % args.key)
     config = load_config()
     task = api.task(config, args.key)
     key = key_of(task)
@@ -825,7 +836,7 @@ def cmd_transition(api, args):
     current = [c for c in columns if c.get("id") == task.get("columnId")][0]
     if not args.target:
         for column in columns:
-            print("%s%s" % (column.get("title"),
+            print("%s%s" % (column_name(column, columns),
                             "   (current)" if column is current else ""))
         return OK
     comment = read_text(args.comment) if args.comment is not None else None
@@ -976,7 +987,7 @@ def parser():
     p.set_defaults(run=cmd_search)
 
     p = sub.add_parser("get", help="read a task: status, assignees, description, comments")
-    p.add_argument("key", help="the task's key (DEV-484), number (ID-188) or id")
+    p.add_argument("key", help="the task's key (DEV-484), number (ID-484) or id")
     p.add_argument("--comments", type=int, default=5, help="last N comments (default 5)")
     p.set_defaults(run=cmd_get)
 
@@ -990,8 +1001,8 @@ def parser():
     p = sub.add_parser("transition", help="list the columns, or move a task to one")
     p.add_argument("key")
     p.add_argument("target", nargs="?", help="a column title, or a word of statuses")
-    p.add_argument("--comment", help="comment to add after the move, Markdown; '-' reads "
-                                     "it from stdin")
+    p.add_argument("--comment", help="comment to add after the move (needs a target), "
+                                     "Markdown; '-' reads it from stdin")
     p.set_defaults(run=cmd_transition)
 
     p = sub.add_parser("comment", help="comment on a task (a message in its chat)")
