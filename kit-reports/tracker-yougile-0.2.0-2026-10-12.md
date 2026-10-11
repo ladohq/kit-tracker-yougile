@@ -2,7 +2,7 @@
 
 - Дата: 2026-10-12
 - Кит: корень worktree рана `improve/tracker-yougile-0-2-0` (путь задан задачей)
-- Коммит: `da2a31e` (визит 1 шага `evaluate`)
+- Коммит: `aa5f135` (визит 2 шага `evaluate`; визит 1 — `da2a31e`)
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно `kit-reports/tracker-yougile-0.1.2-2026-10-12.md`
   (полная оценка `3516aa2`, отчёт в `d0f66fd`; эту базу называет план),
@@ -17,6 +17,15 @@
   `--word-diff` и сделан полный проход по всем пяти файлам из diff (kit.yaml, README.md,
   BLUEPRINT.md, SKILL.md, yougile.py) целиком. Находок одного прохода: 1, оставлена как
   подтверждённая (F5.2); отброшенных нет.
+- Визит 2 (aa5f135). Изменение после визита 1 (`git diff 4a500a3`): два коммита —
+  `c1d8d0c` (SKILL.md, пункт **edit**: F7.1 по варианту (a), F5.2; `_comparable` в
+  yougile.py: F5.1; тест `test_edit_already_so_without_inline_code`) и `aa5f135` (SKILL.md:
+  «да» человека только перед перезаписью описания без метки LADO; BLUEPRINT R10 и строка
+  0.2.0 журнала). Изменение маленькое (≈35 строк), три
+  прохода критик сделал сам: (1) от находок визита 1 к diff, (2) от кода `_comparable` к
+  тестам и разбору (inline code, fenced code), (3) от SKILL.md к R8–R10 BLUEPRINT. Полный
+  проход перед вердиктом: SKILL.md и yougile.py (`cmd_edit` и всё, что он вызывает) — файлы
+  этого diff, и BLUEPRINT R10 и журнал. Находок одного прохода нет.
 
 Находки — кандидаты для человека, а не оценка «сдал / не сдал».
 
@@ -27,9 +36,9 @@
 | a. `lado kits check` | OK; 0 предупреждений |
 | a. Бюджет | зелёный; жёлтых и красных мер нет |
 | a. Потоки | 0 нарисовано (потоков нет, R2); скелетов в BLUEPRINT.md нет («Flow skeletons: none») |
-| b. Рубрика | 3 находки (0 high, 1 medium, 2 low); 4 находки оценки assess — все RESOLVED; 10 из 12 критериев без находок |
+| b. Рубрика | 0 открытых находок; визит 1: F7.1, F5.1, F5.2 — RESOLVED; 4 находки оценки assess — все RESOLVED; 12 из 12 критериев без открытых находок |
 | Охват | повторная оценка изменённого текста и полный проход по 5 файлам из diff (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/yougile.py) |
-| Правило остановки | не выполнено: 0 high, 1 medium (F7.1) в изменённом тексте — совет для ворот релиза, не блок |
+| Правило остановки | выполнено: 0 high, 0 medium в изменённом тексте (визит 1 — не выполнено из-за F7.1, теперь RESOLVED) |
 
 Счёт относится только к тому, что названо в строке «Охват».
 
@@ -76,21 +85,17 @@ no flows in . or BLUEPRINT.md: nothing to do
 (код выхода 0)
 ```
 
-Тесты: `uv run --no-project python -m unittest discover -s tests` — `Ran 84 tests … OK`.
+Тесты: `uv run --no-project python -m unittest discover -s tests` — визит 2: 85 тестов, `OK`.
+Визит 2: `lado kits check .` — тот же вывод (OK), бюджет — тот же, `Overall: green`.
 
 ## Вердикт
 
 `approved`: `lado kits check` без ошибок, бюджет зелёный, `--compare` без различий, открытых
-high нет. F7.1 (medium) и две low не блокируют; правило остановки не выполнено из-за F7.1 —
-это решать человеку на воротах релиза.
+high нет; открытых находок нет вовсе. Правило остановки выполнено.
 
 ## Исправить в первую очередь
 
-1. SKILL.md, **edit**: сказать, как работник сообщает человеку о потерях (через
-   супервизора) и ждёт ли он «да» до записи (F7.1).
-2. `edit`: сравнивать описания так, чтобы inline code, который Yougile выбрасывает, не
-   ломал «уже так» (F5.1).
-3. SKILL.md:73: таблицы `get` показывает строками `a | b`; теряется их структура (F5.2).
+Нечего: открытых находок нет.
 
 ## Находки
 
@@ -116,29 +121,10 @@ build-report: шаги 1–5, все с выходом 0).
 
 ### 5. Противоречия
 
-- **F5.1** [low] `skills/tracker/yougile.py:1061`
-  > if old == to_markdown(to_html(description)):
-  Yougile выбрасывает inline code из описаний (SKILL.md:107 «Yougile drops inline code, so
-  it shows as plain text there»), а сравнение берёт новое описание с обратными кавычками.
-  Повтор того же `edit --description` с `` `foo` `` никогда не «already so»: скрипт снова
-  пишет то же описание и меняет метку на свою, вопреки SKILL.md:92 «**edit**, **assign**,
-  **label**, **transition**: when the task is already so, they change nothing». Вреда
-  тексту нет, но запись лишняя и метка чужого агента пропадает.
-  Fix: сравнивать без разметки inline code с обеих сторон (например, убрать обратные
-  кавычки из `to_markdown(to_html(description))` перед сравнением) и добавить тест.
-  Passes: 2/3 (разбор: `unmarked(to_markdown('<p>[LADO: a]</p><p>use foo here</p>'))` →
-  `'use foo here'`, `to_markdown(to_html('use `foo` here'))` → ``'use `foo` here'``).
-
-- **F5.2** [low] `skills/tracker/SKILL.md:73`
-  > URLs and leaves out colours, tables and checklists, so they are gone after the edit.
-  `get` таблицы не выбрасывает: `_rows` показывает каждую строку как `a | b`
-  (`to_markdown('<table><tr><td>a</td><td>b</td></tr></table>')` → `'a | b'`). После
-  `edit` теряется структура таблицы (строки уйдут абзацами), а не её текст. Агент,
-  поверив SKILL.md, скажет человеку, что таблица пропадёт целиком, или удивится, увидев её
-  ячейки в `get`.
-  Fix: «…shows images as their URLs and tables as plain `a | b` lines, and leaves out
-  colours and checklists, so they are gone after the edit.»
-  Passes: 1/3, confirmed (вывод `to_markdown` выше; `_rows` в yougile.py).
+Находки визита 1 F5.1 и F5.2 — RESOLVED (см. «Прошлые находки»). SKILL.md:71–76 и BLUEPRINT
+R10 (BLUEPRINT.md:150–155) теперь говорят одно: «да» человека — перед перезаписью описания
+без метки, описание с меткой — без вопроса. SKILL.md, сообщения скрипта и R3, R8, R9 о
+`edit` сходятся.
 
 ### 6. Дублирование
 
@@ -148,18 +134,11 @@ build-report: шаги 1–5, все с выходом 0).
 
 ### 7. Когда звать человека
 
-- **F7.1** [medium] `skills/tracker/SKILL.md:71`
-  > it. The script puts your mark first, in place of any mark there. Before you rewrite a
-  > description someone else wrote, tell the human what it loses: `get` shows images as their
-  Не сказано, как работник «говорит человеку» (в той же SKILL.md это всегда «as a worker,
-  through the supervisor», SKILL.md:62–63, 139) и ждёт ли он ответа до записи. Один агент
-  спросит человека напрямую, хотя разговор держит лидер, другой упомянет потери в заметке
-  уже после правки, третий остановит шаг до «да» — даже когда шаг сам назвал правку.
-  Fix: «…tell the human (as a worker, through the supervisor) what it loses and wait for
-  their yes: …» — или, если «да» не нужно, «say in your note what it lost». Какой из двух —
-  решение человека (вопрос 1).
-  Passes: 2/3 (проход 1 — план: «tell the human what is lost» без пути; проход 3 —
-  сверка с SKILL.md:62–63 и 139).
+F7.1 визита 1 — RESOLVED. Путь к человеку и ожидание названы: SKILL.md:73–74 «tell the
+human (as a worker, through the supervisor) what it loses and wait for their / yes, even when
+your step names the edit.» Остаток риска, принятый решением (a): описание с меткой агента,
+куда человек потом дописал картинку или чек-лист, правится без вопроса — картинка останется
+ссылкой, чек-лист пропадёт.
 
 ### 8. Циклы при повторном визите
 
@@ -195,7 +174,7 @@ task's title"». Других скиллов нет.
 | 2. Работа вне потока, слияние без ворот | Не применимо: потоков и слияний нет; `edit` ограничен SKILL.md:29–30. |
 | 3. Путь вне worktree рана | Без изменений: `${SKILL_DIR}`, настройки до корня репозитория. |
 | 4. Вердикт без порога важности | Не применимо: рецензента нет. |
-| 5. Зависимый скилл пишет или спрашивает там, где роли нельзя | Не применимо: зависимых скиллов нет. Свой скилл: см. F7.1 (путь к человеку в **edit** не назван). |
+| 5. Зависимый скилл пишет или спрашивает там, где роли нельзя | Не применимо: зависимых скиллов нет. Свой скилл называет путь через супервизора (SKILL.md:73). |
 | 6. Команды не в ладу с `expects.commands` | Без изменений: только `uv`, `dependencies.lado: ">=0.30"`, предупреждения нет. |
 | 7. Read-only роли не в ладу с тем, что делают | Не применимо: ролей нет. |
 
@@ -216,6 +195,13 @@ task's title"». Других скиллов нет.
   the `--start` of the next one.»
 - **F5.2** RESOLVED — yougile.py `cmd_search`: «if args.start < 0 or args.max < 1:» → exit 2;
   тест `test_search_refuses_negative_paging` проходит.
+- Визит 1, **F5.1** (inline code и «already so») RESOLVED — yougile.py `_comparable`:
+  «return CODE_SPAN.sub(lambda m: m.group(2).strip(), unmarked(markdown))» с обеих сторон
+  сравнения; тест `test_edit_already_so_without_inline_code` проходит (85 тестов OK).
+- Визит 1, **F5.2** (таблицы) RESOLVED — SKILL.md:74–75 «`get` shows images as their URLs
+  and tables as / plain `a | b` lines, and leaves out colours and checklists».
+- Визит 1, **F7.1** (путь к человеку и «да») RESOLVED — SKILL.md:71–76, вариант (a)
+  решения на воротах, сужен до описаний без метки; BLUEPRINT R10 и журнал 0.2.0 обновлены.
 - План, LAD-12 `edit`: сделан, как в плане — флаги `--title`/`--description`, один GET,
   один PUT только с изменёнными полями, метка заменяется или добавляется, «already so»
   без PUT, вывод как `get` без комментариев, строка в таблице Actions, пункт **edit**,
@@ -230,6 +216,7 @@ task's title"». Других скиллов нет.
 | «a repository with no remote has no such page, so give the branch and the commit hash in a `comment`» (SKILL.md:67–68) | SKILL.md:77–79, расширено |
 | «the script starts every comment and every new task's description with `[LADO: <your agent name>]`; leave that mark to it» (SKILL.md:24–26) | SKILL.md:25–27 («every description it writes (`create`, `edit`)») |
 | Правило записи «Create, transition, … only when your role, your step or the human asks … your process kit's roles and steps may allow more» (SKILL.md:28–30) | SKILL.md:28–31 без потерь |
+| Визит 2: «tell the human what it loses: `get` shows images as their URLs and leaves out colours, tables and checklists» (SKILL.md:72–73 в 4a500a3) | SKILL.md:71–76, с путём, «да» и поправкой про таблицы |
 | README «What agents write», kit.yaml description, BLUEPRINT R3/R8/R9/R10 | только перенос строк и дополнения (`--word-diff`); ничего не потеряно |
 
 ## Пропущено ранее
@@ -242,8 +229,4 @@ task's title"». Других скиллов нет.
 
 ## Вопросы человеку
 
-1. F7.1: перед перезаписью чужого описания агент (a) спрашивает человека через
-   супервизора и ждёт «да» или (b) пишет и называет потери в заметке? Рекомендую (a), но
-   только для описания без метки LADO (то есть написанного человеком): так потеря никогда
-   не случится без «да» человека, а описания агентов, где терять нечего, правятся без
-   остановки.
+Нет (вопрос 1 визита 1 решён на воротах: вариант (a)).
