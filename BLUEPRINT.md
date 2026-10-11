@@ -240,8 +240,7 @@ Reverse check:
 
 ## 4. Complexity budget
 
-Output of the `kit-budget` script on the built kit (build of 0.1.2, 2026-10-11; the
-full assessment of 2026-10-12 gives the same):
+Output of the `kit-budget` script on the built kit (build of 0.2.0, 2026-10-12):
 
 | Measure | Where | Value | Green / yellow up to | Zone | Reason, when not green |
 |---|---|---|---|---|---|

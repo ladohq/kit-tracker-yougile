@@ -2,9 +2,9 @@
 
 A LADO kit for Yougile (yougile.com; a company's self-hosted Yougile is untried) through
 its REST API v2. It gives the roles of any process kit a skill named `tracker` that searches,
-reads, creates, moves, comments on, assigns and labels tasks, links a URL to them and
-says which account it works as, through a script on Python's standard library, run by
-`uv` (no MCP server). The skill's actions have the names of `tracker-jira-server`'s, so a
+reads, creates, edits (title, description), moves, comments on, assigns and labels tasks,
+links a URL to them and says which account it works as, through a script on Python's
+standard library, run by `uv` (no MCP server). The skill's actions have the names of `tracker-jira-server`'s, so a
 process kit's text fits both.
 
 The kit has no agents and no flows: it adds the skill to a session led by a process kit.
@@ -97,12 +97,13 @@ them. The skill's `transition` action without a target lists the columns.
 ## What agents write
 
 Agents write descriptions and comments in Markdown; the script converts it to HTML
-(headings, emphasis, code, lists, links). Every comment and every created task's
-description starts with `[LADO: <agent>]`, the name of the agent that wrote it. Run by
-hand (no `LADO_AGENT` in the environment), the script adds no mark. By default agents only
+(headings, emphasis, code, lists, links). Every comment and every description an agent
+writes (a created or edited task's) starts with `[LADO: <agent>]`, the name of the agent
+that wrote it. Run by hand (no `LADO_AGENT` in the environment), the script adds no mark. By default agents only
 read; they create, transition, comment, assign, label or link when their role, their step
-or the human asks (`skills/tracker/SKILL.md`). A process kit says which roles touch the
-tracker and when, and may allow more.
+or the human asks, and edit a task's title or description only when the human or their
+step asks (`skills/tracker/SKILL.md`). A process kit says which roles touch the tracker
+and when, and may allow more.
 
 Yougile allows 50 API requests a minute per company; when it limits one, the script waits
 once (at most a minute) and sends it again.

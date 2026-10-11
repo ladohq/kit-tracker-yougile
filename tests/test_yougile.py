@@ -471,6 +471,13 @@ class CommandsTest(YougileTestCase):
         _, out, _ = self.run_yougile("search", "--status", "done")
         self.assertEqual(out, "No tasks (total 0).\n")
 
+    def test_search_refuses_negative_paging(self):
+        for argv in (("--start", "-1"), ("--max", "0")):
+            with self.subTest(argv=argv):
+                self.assertFails(yougile.USAGE, "--start must be 0 or more and --max 1 or more",
+                                 "search", *argv)
+        self.assertEqual(self.api.requests, [])
+
     def test_lists_are_read_page_after_page(self):
         self.api.data["tasks"] += [
             {"id": uid(500 + n), "idTaskProject": "DEV-%d" % (500 + n), "title": "t",
@@ -610,6 +617,77 @@ class CommandsTest(YougileTestCase):
         self.assertFails(yougile.SERVER_ERROR, "created, but reading its key failed \\(do "
                                                "not run create again\\)",
                          "create", "--title", "New")
+
+    def test_edit_title_only(self):
+        code, out, err = self.run_yougile("edit", "DEV-1", "--title", "Login page")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "DEV-1: title changed\n\nDEV-1  Login page\nStatus: To do\n"
+                              "Assignees: unassigned\nLabels: none\n\nDescription:\nMake it\n")
+        self.assertEqual(self.sent("PUT", "tasks/" + T1)[0]["body"], {"title": "Login page"})
+        self.assertEqual(self.task(T1)["description"], "<p>Make it</p>")
+
+    def test_edit_adds_the_mark_to_a_persons_description(self):
+        code, out, err = self.run_yougile("edit", "DEV-1", "--description", "-",
+                                          stdin="Make it **now**\n")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("PUT", "tasks/" + T1)[0]["body"], {
+            "description": "<p>[LADO: developer]</p><p>Make it <strong>now</strong></p>"})
+        self.assertTrue(out.startswith("DEV-1: description changed\n\nDEV-1  Login form\n"))
+        self.assertIn("\nDescription:\n[LADO: developer]\n\nMake it **now**\n", out)
+        self.assertNotIn("Comments", out)
+
+    def test_edit_replaces_an_agents_mark(self):
+        self.task(T1)["description"] = "<p>[LADO: analyst]</p><p>Old</p>"
+        # A mark copied from get with the text is the script's to set, not doubled.
+        code, _, err = self.run_yougile("edit", "DEV-1", "--description", "-",
+                                        stdin="[LADO: analyst]\n\nNew\n")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.task(T1)["description"], "<p>[LADO: developer]</p><p>New</p>")
+
+    def test_edit_title_and_description(self):
+        code, out, err = self.run_yougile("edit", "DEV-1", "--title", "Login page",
+                                          "--description", "Make it now")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith("DEV-1: title and description changed\n\nDEV-1  Login "
+                                       "page\n"), out)
+        self.assertEqual(self.sent("PUT", "tasks/" + T1)[0]["body"], {
+            "title": "Login page", "description": "<p>[LADO: developer]</p><p>Make it now</p>"})
+        self.assertEqual(len(self.sent("PUT", "tasks/" + T1)), 1)
+
+    def test_edit_already_so(self):
+        self.task(T1)["description"] = "<p>[LADO: analyst]</p><p>Make it</p>"
+        code, out, err = self.run_yougile("edit", "DEV-1", "--title", "Login form",
+                                          "--description", "Make it")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith("DEV-1: title and description already so, nothing "
+                                       "changed\n\nDEV-1  Login form\n"), out)
+        _, out, _ = self.run_yougile("edit", "DEV-1", "--title", "Login page",
+                                     "--description", "Make it")
+        self.assertTrue(out.startswith("DEV-1: title changed; description already so\n"), out)
+        self.assertEqual([r["body"] for r in self.sent("PUT", "tasks/" + T1)],
+                         [{"title": "Login page"}])
+
+    def test_edit_needs_a_flag_and_text(self):
+        self.assertFails(yougile.USAGE, "give --title or --description", "edit", "DEV-1")
+        self.assertFails(yougile.USAGE, "the title is empty", "edit", "DEV-1", "--title", " ")
+        self.assertFails(yougile.USAGE, "the text is empty", "edit", "DEV-1",
+                         "--description", "-", stdin="\n")
+        self.assertFails(yougile.USAGE, "the description is empty", "edit", "DEV-1",
+                         "--description", "[LADO: developer]")
+        self.assertEqual(self.api.requests, [])
+
+    def test_edit_task_of_another_board(self):
+        self.task(T2)["columnId"] = FOREIGN
+        self.assertFails(yougile.NOT_FOUND, "not found on board 'Dev'", "edit", "DEV-2",
+                         "--title", "x")
+        self.assertEqual(self.sent("PUT", "tasks/" + T2), [])
+
+    def test_edit_by_hand_has_no_mark(self):
+        self.task(T1)["description"] = "<p>[LADO: analyst]</p><p>Old</p>"
+        with mock.patch.dict(os.environ, {"LADO_AGENT": ""}):
+            code, _, err = self.run_yougile("edit", "DEV-1", "--description", "New")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.task(T1)["description"], "<p>New</p>")
 
     def test_transition_lists_columns(self):
         code, out, _ = self.run_yougile("transition", "DEV-2")

@@ -5,8 +5,8 @@
 # ///
 """Yougile from the command line: REST API v2, a bearer API key.
 
-Commands: search, get, create, transition, comment, assign, label, link, whoami (run with
---help). Credentials come from YOUGILE_API_KEY and YOUGILE_URL (optional, default
+Commands: search, get, create, edit, transition, comment, assign, label, link, whoami
+(run with --help). Credentials come from YOUGILE_API_KEY and YOUGILE_URL (optional, default
 https://yougile.com, or a self-hosted Yougile's address); the key is never printed.
 Tasks are named by the key people see (idTaskProject, e.g. DEV-484), the company-wide
 number (idTaskCommon, e.g. ID-484) or their id; tasks of other boards are not found.
@@ -834,6 +834,15 @@ def agent_mark():
     return "[LADO: %s]" % agent if agent else ""
 
 
+# A mark as the first paragraph of a description's Markdown (any agent's).
+MARK = re.compile(r"\A\s*\[LADO: [^\]\n]*\][ \t]*(?:\n\s*|\Z)")
+
+
+def unmarked(markdown):
+    """The Markdown without the mark it starts with."""
+    return MARK.sub("", markdown, count=1)
+
+
 def _marked(body):
     """HTML to send: the mark as its first paragraph, then the body."""
     label = agent_mark()
@@ -923,6 +932,8 @@ def _labels_of(task, resolved):
 
 
 def cmd_search(api, args):
+    if args.start < 0 or args.max < 1:
+        raise Failure(USAGE, "--start must be 0 or more and --max 1 or more")
     config = load_config()
     if args.status:
         columns = [api.column(config, args.status)]
@@ -955,9 +966,8 @@ def cmd_search(api, args):
     return OK
 
 
-def cmd_get(api, args):
-    config = load_config()
-    task = api.task(config, args.key)
+def _show(api, config, task):
+    """The task as get prints it, up to its description."""
     print("%s  %s" % (key_of(task), task.get("title")))
     flags = [name for name in ("completed", "archived") if task.get(name)]
     print("Status: %s%s" % (_column_title(api, config, task.get("columnId")),
@@ -968,6 +978,12 @@ def cmd_get(api, args):
         resolved = _resolvable(_stickers(api, config), config, config["labels"])
         print("Labels: %s" % (", ".join(_labels_of(task, resolved)) or "none"))
     print("\nDescription:\n%s" % (to_markdown(task.get("description") or "") or "(empty)"))
+
+
+def cmd_get(api, args):
+    config = load_config()
+    task = api.task(config, args.key)
+    _show(api, config, task)
     messages = [m for m in api.pages("chats/%s/messages" % task["id"])
                 if not m.get("deleted")]
     messages.sort(key=lambda m: m.get("id") or 0)
@@ -1016,6 +1032,50 @@ def cmd_create(api, args):
         raise Failure(failure.code, "task %s created, but reading its key failed (do not run "
                                     "create again): %s" % (task_id, failure.message))
     print("%s created in %s" % (key_of(task), column_name(column, api.columns(config))))
+    return OK
+
+
+def cmd_edit(api, args):
+    if args.title is None and args.description is None:
+        raise Failure(USAGE, "give --title or --description, or both")
+    if args.title is not None and not args.title.strip():
+        raise Failure(USAGE, "the title is empty")
+    description = None
+    if args.description is not None:
+        # The mark is the script's: one the text starts with (copied from get) is dropped.
+        description = unmarked(read_text(args.description))
+        if not description.strip():
+            raise Failure(USAGE, "the description is empty")
+    config = load_config()
+    task = api.task(config, args.key)
+    key = key_of(task)
+    body, same = {}, []
+    if args.title is not None:
+        if args.title == task.get("title"):
+            same.append("title")
+        else:
+            body["title"] = args.title
+    if description is not None:
+        # Compared as get shows them, without the mark: whose mark it is changes nothing.
+        old = unmarked(to_markdown(task.get("description") or ""))
+        if old == to_markdown(to_html(description)):
+            same.append("description")
+        else:
+            # The whole description is replaced: the old mark goes, this agent's comes first.
+            body["description"] = marked_html(description)
+    if not body:
+        print("%s: %s already so, nothing changed\n" % (key, " and ".join(same)))
+        _show(api, config, task)
+        return OK
+    api.call("PUT", "tasks/%s" % task["id"], body=body, missing=missing_task(key))
+    try:
+        after = api.call("GET", "tasks/%s" % task["id"], missing=missing_task(key))
+    except Failure as failure:
+        raise Failure(failure.code, "%s: changed, but reading it back failed (do not run it "
+                                    "again; check with get): %s" % (key, failure.message))
+    print("%s: %s changed%s\n" % (key, " and ".join(body),
+                                  "; %s already so" % same[0] if same else ""))
+    _show(api, config, after)
     return OK
 
 
@@ -1191,6 +1251,13 @@ def parser():
     p.add_argument("--status", help="a column title or id, or a word of statuses (default: "
                                     "the board's first column)")
     p.set_defaults(run=cmd_create)
+
+    p = sub.add_parser("edit", help="change a task's title or description (or both)")
+    p.add_argument("key", help="the task's key (DEV-484), number (ID-484) or id")
+    p.add_argument("--title", help="the new title")
+    p.add_argument("--description", help="the new description, replacing the old one whole: "
+                                         "Markdown; '-' reads it from stdin")
+    p.set_defaults(run=cmd_edit)
 
     p = sub.add_parser("transition", help="list the columns, or move a task to one")
     p.add_argument("key")
