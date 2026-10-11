@@ -69,8 +69,10 @@ is not found (exit 7).
 - **edit** prints the task as `get` does, without comments. `--description` replaces the
   description whole: `get` the task first and send the full text, changed where you mean
   it. The script puts your mark first, in place of any mark there. Before you rewrite a
-  description someone else wrote, tell the human what it loses: `get` shows images as their
-  URLs and leaves out colours, tables and checklists, so they are gone after the edit.
+  description someone else wrote, tell the human (as a worker, through the supervisor) what
+  it loses, and wait for their yes, even when your step names the edit: `get` shows images
+  as their URLs and tables as plain `a | b` lines, and leaves out colours and checklists,
+  so they are gone after the edit.
 - **comment**, **transition --comment**, **link** post a message to the task's chat and
   print its id; `get` shows the same id on each comment, so look for it there to see that
   yours is in. Yougile has no link object: `link` is a comment with the URL. The URL is the

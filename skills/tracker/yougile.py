@@ -843,6 +843,11 @@ def unmarked(markdown):
     return MARK.sub("", markdown, count=1)
 
 
+def _comparable(markdown):
+    """A description as Yougile keeps it: without the mark, inline code as plain text."""
+    return CODE_SPAN.sub(lambda m: m.group(2).strip(), unmarked(markdown))
+
+
 def _marked(body):
     """HTML to send: the mark as its first paragraph, then the body."""
     label = agent_mark()
@@ -1057,8 +1062,8 @@ def cmd_edit(api, args):
             body["title"] = args.title
     if description is not None:
         # Compared as get shows them, without the mark: whose mark it is changes nothing.
-        old = unmarked(to_markdown(task.get("description") or ""))
-        if old == to_markdown(to_html(description)):
+        old = _comparable(to_markdown(task.get("description") or ""))
+        if old == _comparable(to_markdown(to_html(description))):
             same.append("description")
         else:
             # The whole description is replaced: the old mark goes, this agent's comes first.

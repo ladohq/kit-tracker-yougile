@@ -667,6 +667,14 @@ class CommandsTest(YougileTestCase):
         self.assertEqual([r["body"] for r in self.sent("PUT", "tasks/" + T1)],
                          [{"title": "Login page"}])
 
+    def test_edit_already_so_without_inline_code(self):
+        # Yougile drops inline code from descriptions: `foo` comes back as foo.
+        self.task(T1)["description"] = "<p>[LADO: analyst]</p><p>use foo here</p>"
+        code, out, err = self.run_yougile("edit", "DEV-1", "--description", "use `foo` here")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith("DEV-1: description already so, nothing changed\n"), out)
+        self.assertEqual(self.sent("PUT", "tasks/" + T1), [])
+
     def test_edit_needs_a_flag_and_text(self):
         self.assertFails(yougile.USAGE, "give --title or --description", "edit", "DEV-1")
         self.assertFails(yougile.USAGE, "the title is empty", "edit", "DEV-1", "--title", " ")
