@@ -13,7 +13,8 @@ lists `skills: [tracker]`, so a session without a tracker kit refuses to start.
 
 Where it was tried: against a fake Yougile in its tests, and on 2026-10-10 on a live board
 in Yougile's cloud, where all nine actions and the refused-key, not-found and settings
-errors worked. Only the cloud is tried: a self-hosted Yougile (`YOUGILE_URL`) serves the
+errors worked; on 2026-10-12 `edit` (0.2.0) was tried there too: title, description, both,
+already so, and the mark of another agent replaced. Only the cloud is tried: a self-hosted Yougile (`YOUGILE_URL`) serves the
 same API but has not been tried.
 
 ## Install and start
