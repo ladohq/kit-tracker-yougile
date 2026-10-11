@@ -368,6 +368,55 @@ class MarkdownTest(unittest.TestCase):
                              "<p>a &lt;b&gt;<br>c</p><p>d</p>")
 
 
+class HtmlToMarkdownTest(unittest.TestCase):
+    def test_elements_the_script_writes(self):
+        self.assertEqual(yougile.to_markdown(
+            "<p>[LADO: dev]</p><h2>Plan</h2>"
+            "<p>Some <strong>bold</strong>, <b>b</b>, <em>it</em>, <i>i</i> &amp; "
+            "<code>a&lt;b</code><br>next "
+            '<a href="https://x.org/?a=1&amp;b=2">site</a></p>'
+            "<pre><code>if a &lt; b:\n    pass</code></pre>"), (
+            "[LADO: dev]\n\n## Plan\n\n"
+            "Some **bold**, **b**, *it*, *i* & `a<b`\nnext [site](https://x.org/?a=1&b=2)"
+            "\n\n```\nif a < b:\n    pass\n```"))
+
+    def test_nested_lists(self):
+        self.assertEqual(yougile.to_markdown(
+            "<ul><li>one</li><li>two<ul><li>nested</li></ul></li></ul>"
+            "<ol><li>first</li><li>second<ol><li>sub</li></ol><ul><li>mixed</li></ul>"
+            "</li></ol>"),
+            "- one\n- two\n  - nested\n\n1. first\n2. second\n   1. sub\n   - mixed")
+
+    def test_other_tags_dropped_text_kept(self):
+        self.assertEqual(yougile.to_markdown(
+            '<p><span style="color:red">kept</span>&nbsp;<u>too</u>'
+            '<script>alert(1)</script></p><div>block</div>'
+            '<p>see <img src="https://img.example/x.png" alt="x"></p>'),
+            "kept too\n\nblock\n\nsee https://img.example/x.png")
+
+    def test_table_cells_and_rows(self):
+        self.assertEqual(yougile.to_markdown(
+            "<table><thead><tr><th>A</th><th>B</th></tr></thead>"
+            "<tbody><tr><td>1</td><td><strong>2</strong></td></tr></tbody></table>"),
+            "A | B\n1 | **2**")
+
+    def test_plain_text_and_empty(self):
+        self.assertEqual(yougile.to_markdown("a &lt; b\nc"), "a < b\nc")
+        self.assertEqual(yougile.to_markdown(""), "")
+
+    def test_round_trip_of_what_the_script_writes(self):
+        text = ("# Title\n\nSome **bold**, *italic* and `code`.\n"
+                "Next [site](https://x.org/a?b=1&c=2)\n\n"
+                "- one\n- two\n  - nested\n\n1. first\n2. second\n   1. sub\n\n"
+                "```\nif a < b:\n    pass\n```\n\nafter")
+        self.assertEqual(yougile.to_markdown(yougile.to_html(text)), text)
+
+    def test_falls_back_to_stripped_tags(self):
+        with mock.patch.object(yougile, "_md_blocks", side_effect=RuntimeError):
+            self.assertEqual(yougile.to_markdown("<p>a &amp; <b>b</b></p><p>c</p>"),
+                             "a & b c")
+
+
 class CommandsTest(YougileTestCase):
     def test_whoami_sends_the_key_as_bearer(self):
         code, out, err = self.run_yougile("whoami")
@@ -429,8 +478,14 @@ class CommandsTest(YougileTestCase):
 
     def test_search_unknown_status(self):
         self.assertFails(yougile.REFUSED, "status 'qa' is not a column of the board; its "
-                                          "columns: To do, In progress, Review, Done",
+                                          "columns: To do, In progress, Review, Done; to use "
+                                          "this word, map it to a column in 'statuses' of "
+                                          r"\.lado/tracker\.yaml \(its words: in progress, "
+                                          r"review, done\)",
                          "search", "--status", "qa")
+        self.write_config("board: Dev\n")
+        self.assertFails(yougile.REFUSED, r"'statuses' of .*\(its words: none\)",
+                         "transition", "DEV-1", "qa")
 
     def test_statuses_word_of_no_column_is_the_settings(self):
         self.write_config("board: Dev\nstatuses:\n  review: QA\n")
@@ -444,7 +499,7 @@ class CommandsTest(YougileTestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(out, (
             "DEV-1  Login form\nStatus: To do\nAssignees: unassigned\nLabels: none\n"
-            "\nDescription:\n<p>Make it</p>\n"
+            "\nDescription:\nMake it\n"
             "\nComments: 3, the last 2 shown\n"
             "\n--- comment 1700000000002, Ann Lee (ann@example.com), 2023-11-14 22:13 UTC\n"
             "note 2\n"
@@ -519,6 +574,15 @@ class CommandsTest(YougileTestCase):
             "title": "New", "columnId": TODO,
             "description": "<p>[LADO: developer]</p><p><strong>Why:</strong> it "
                            "&lt;breaks&gt;</p>"})
+
+    def test_get_shows_a_created_description_as_markdown(self):
+        text = "**Why:** it fails\n\n- one\n  - nested\n\n[site](https://x.org)"
+        code, _, err = self.run_yougile("create", "--title", "New", "--description", "-",
+                                        stdin=text)
+        self.assertEqual(code, 0, err)
+        code, out, err = self.run_yougile("get", "DEV-101")
+        self.assertEqual(code, 0, err)
+        self.assertIn("\nDescription:\n[LADO: developer]\n\n%s\n\nComments" % text, out)
 
     def test_create_in_a_status_and_by_hand(self):
         with mock.patch.dict(os.environ, {"LADO_AGENT": ""}):

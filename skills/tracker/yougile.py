@@ -10,13 +10,15 @@ Commands: search, get, create, transition, comment, assign, label, link, whoami 
 https://yougile.com, or a self-hosted Yougile's address); the key is never printed.
 Tasks are named by the key people see (idTaskProject, e.g. DEV-484), the company-wide
 number (idTaskCommon, e.g. ID-484) or their id; tasks of other boards are not found.
-Text sent to Yougile is Markdown, converted to HTML. Project settings come from
-.lado/tracker.yaml, found from the current directory up to the repository root.
+Text sent to Yougile is Markdown, converted to HTML; get shows a description's HTML as
+Markdown again. Project settings come from .lado/tracker.yaml, found from the current
+directory up to the repository root.
 Python standard library only, run by `uv run --script`.
 """
 
 import argparse
 import html
+import html.parser
 import http.client
 import json
 import os
@@ -421,8 +423,11 @@ class Yougile:
                 raise Failure(CONFIG, "'statuses.%s: %s' in %s %s; its columns: %s; the "
                                       "user fixes the file" % (target, title, CONFIG_PATH,
                                                                problem, column_list(columns)))
-            raise Failure(REFUSED, "status '%s' %s; its columns: %s"
-                          % (target, problem, column_list(columns)))
+            advice = ("" if match else "; to use this word, map it to a column in 'statuses' "
+                      "of %s (its words: %s)" % (CONFIG_PATH,
+                                                 ", ".join(config["statuses"]) or "none"))
+            raise Failure(REFUSED, "status '%s' %s; its columns: %s%s"
+                          % (target, problem, column_list(columns), advice))
         return match[0]
 
     def tasks(self, column_id, query=None):
@@ -627,6 +632,174 @@ def to_html(text):
         return plain_html(text)
 
 
+# --- HTML -> Markdown for get: the same subset back, other tags dropped, text kept ------
+
+VOID = {"br", "img", "hr", "wbr", "input", "col", "area", "source", "meta", "link", "base"}
+BLOCK = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "ul", "ol", "li", "table",
+         "thead", "tbody", "tfoot", "tr", "blockquote", "hr", "section", "article", "header",
+         "footer", "figure"}
+SKIP = {"script", "style", "head", "title", "template"}
+TAG = re.compile(r"<[a-zA-Z!/]")
+
+
+class _Tree(html.parser.HTMLParser):
+    """The HTML as a tree of (tag, attributes, children); entities decoded."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = ("", {}, [])
+        self.open = [self.root]
+
+    def handle_starttag(self, tag, attrs):
+        node = (tag, dict(attrs), [])
+        self.open[-1][2].append(node)
+        if tag not in VOID:
+            self.open.append(node)
+
+    def handle_endtag(self, tag):
+        for i in range(len(self.open) - 1, 0, -1):
+            if self.open[i][0] == tag:
+                del self.open[i:]
+                return
+
+    def handle_data(self, data):
+        self.open[-1][2].append(data)
+
+
+def _wrap(mark, text):
+    """Emphasis around the text, its outer spaces left outside."""
+    core = text.strip()
+    if not core:
+        return text
+    return "%s%s%s%s%s" % (text[:len(text) - len(text.lstrip())], mark, core, mark,
+                           text[len(text.rstrip()):])
+
+
+def _raw(node):
+    """The text of a node as written (for code blocks); <br> is a line break."""
+    if isinstance(node, str):
+        return node
+    if node[0] == "br":
+        return "\n"
+    return "".join(_raw(child) for child in node[2])
+
+
+def _md_inline(node):
+    if isinstance(node, str):
+        return re.sub(r"\s+", " ", node)
+    tag, attrs, children = node
+    if tag in SKIP:
+        return ""
+    if tag == "br":
+        return "\n"
+    if tag == "img":
+        return attrs.get("src") or ""
+    if tag == "code":
+        code = re.sub(r"\s+", " ", _raw(node)).strip()
+        tick = "``" if "`" in code else "`"
+        return "%s%s%s" % (tick, code, tick) if code else ""
+    text = "".join(_md_inline(child) for child in children)
+    if tag in ("strong", "b"):
+        return _wrap("**", text)
+    if tag in ("em", "i"):
+        return _wrap("*", text)
+    if tag == "a" and attrs.get("href"):
+        return "[%s](%s)" % (text.strip(), attrs["href"]) if text.strip() else attrs["href"]
+    return text
+
+
+def _md_blocks(nodes):
+    """Markdown blocks of the nodes: inline runs become paragraphs."""
+    blocks, run = [], []
+
+    def flush():
+        lines = [line.strip() for line in "".join(run).split("\n")]
+        text = "\n".join(lines).strip("\n")
+        if text.strip():
+            blocks.append(text)
+        del run[:]
+
+    for node in nodes:
+        if isinstance(node, str) or node[0] not in BLOCK:
+            run.append(_md_inline(node))
+        else:
+            flush()
+            blocks.extend(_md_block(node))
+    flush()
+    return blocks
+
+
+def _md_list(node):
+    lines, number = [], 0
+    for child in node[2]:
+        if isinstance(child, str) and not child.strip():
+            continue
+        number += 1
+        marker = "%d. " % number if node[0] == "ol" else "- "
+        body, run = [], []
+        for kid in child[2] if not isinstance(child, str) and child[0] == "li" else [child]:
+            if not isinstance(kid, str) and kid[0] in ("ul", "ol"):
+                body.extend(_md_blocks(run) + [_md_list(kid)])
+                run = []
+            else:
+                run.append(kid)
+        body.extend(_md_blocks(run))
+        item = "\n".join(body).split("\n")
+        lines.append((marker + item[0]).rstrip())
+        lines.extend(" " * len(marker) + line if line else line for line in item[1:])
+    return "\n".join(lines)
+
+
+def _rows(node):
+    """The rows of a table, each its cells apart by ' | '."""
+    rows = []
+    for child in node[2]:
+        if isinstance(child, str):
+            continue
+        if child[0] == "tr":
+            cells = [" ".join(_md_blocks(c[2])).replace("\n", " ") for c in child[2]
+                     if not isinstance(c, str)]
+            rows.append(" | ".join(cells))
+        else:
+            rows.extend(_rows(child))
+    return rows
+
+
+def _md_block(node):
+    tag, _, children = node
+    if re.match(r"^h[1-6]$", tag):
+        text = " ".join(_md_blocks(children)).replace("\n", " ").strip()
+        return ["%s %s" % ("#" * int(tag[1]), text)] if text else []
+    if tag == "pre":
+        return ["```\n%s\n```" % _raw(node).strip("\n")]
+    if tag in ("ul", "ol"):
+        text = _md_list(node)
+        return [text] if text else []
+    if tag in ("table", "thead", "tbody", "tfoot", "tr"):
+        rows = [r for r in _rows(("", {}, [node])) if r.strip(" |")]
+        return ["\n".join(rows)] if rows else []
+    if tag == "hr":
+        return ["---"]
+    if tag == "blockquote":
+        return ["\n".join("> " + line if line else ">"
+                          for line in "\n\n".join(_md_blocks(children)).split("\n"))]
+    return _md_blocks(children)
+
+
+def to_markdown(text):
+    """Yougile's HTML back to Markdown; the text with tags stripped if that fails."""
+    if not TAG.search(text):
+        return html.unescape(text).strip()
+    try:
+        tree = _Tree()
+        tree.feed(text)
+        tree.close()
+        return "\n\n".join(_md_blocks(tree.root[2]))
+    except Exception:
+        stripped = re.sub(r"<[^>]*>", " ", text)
+        return re.sub(r"[ \t]+", " ", html.unescape(stripped)).strip()
+
+
 # --- commands --------------------------------------------------------------------------
 
 
@@ -775,7 +948,7 @@ def cmd_get(api, args):
         # Words whose sticker or state the board no longer has are left out, as in label.
         resolved = _resolvable(_stickers(api, config), config, config["labels"])
         print("Labels: %s" % (", ".join(_labels_of(task, resolved)) or "none"))
-    print("\nDescription:\n%s" % (task.get("description") or "(empty)"))
+    print("\nDescription:\n%s" % (to_markdown(task.get("description") or "") or "(empty)"))
     messages = [m for m in api.pages("chats/%s/messages" % task["id"])
                 if not m.get("deleted")]
     messages.sort(key=lambda m: m.get("id") or 0)
@@ -981,7 +1154,7 @@ def parser():
     sub.required = True
 
     p = sub.add_parser("search", help="find tasks of the board; archived ones left out")
-    p.add_argument("--status", help="a column title, or a word of statuses")
+    p.add_argument("--status", help="a column title or id, or a word of statuses")
     p.add_argument("--assignee", help="'me', an email, or 'none' (unassigned)")
     p.add_argument("--text", help="words of the title")
     p.add_argument("--start", type=int, default=0, help="index of the first task")

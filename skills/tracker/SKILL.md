@@ -23,8 +23,7 @@ script works with the user's `YOUGILE_API_KEY` (and `YOUGILE_URL` for a self-hos
 Yougile); never ask for them, print them or put them in a file. Whatever you write in
 Yougile appears in the user's name, so the script starts every comment and every new
 task's description with `[LADO: <your agent name>]`; leave that mark to it. In `get` it
-is the first line of your comments and the first paragraph (`<p>[LADO: …]</p>`) of a
-description.
+is the first line of your comments and of your tasks' descriptions.
 
 Reading is always fine. Create, transition, comment, assign, label or link only when your
 role, your step or the human asks for it, and only on the tasks named; your process kit's
@@ -45,15 +44,19 @@ is not found (exit 7).
 | change its status | `transition DEV-1 '<status>' [--comment -]` |
 | comment | `comment DEV-1 -` (the text on stdin) |
 | assign a task | `assign DEV-1 <me \| email \| none> [--reassign]` (`none` unassigns) |
-| add or remove labels | `label DEV-1 [--add L ...] [--remove L ...]` |
+| add or remove labels | `label DEV-1 [--add '<label>' ...] [--remove '<label>' ...]` |
 | link a branch, commit or pull request | `link DEV-1 <url> [--title '<text>']` |
 | see which account you work as | `whoami` |
 
 - **Status** is a column of the project's board: a status `S` is a column's title, its id
   (written after a title several columns share), or a word of `statuses` in the settings
   ("review"). `transition` without a target lists the columns, the task's own marked
-  `(current)`; run it first when you are unsure. `--comment` needs a target. Moving a
-  task does not tick Yougile's "completed" flag; `get` shows it when someone did.
+  `(current)`; run it first when you are unsure. A word that is none of these (exit 11,
+  the columns listed) is not guessed freely: take a column by meaning only when exactly
+  one of them fits, and say in your note or report which column you took for which word,
+  so the user can map it in `statuses`; when none or several fit, ask the human (as a
+  worker, through the supervisor). `--comment` needs a target. Moving a task does not
+  tick Yougile's "completed" flag; `get` shows it when someone did.
 - **search** looks at the board's tasks, archived ones left out; `--text` matches words
   of the title. A full page ends with the `--start` of the next one.
 - **create** puts the task in the board's first column unless `--status` names another,
@@ -71,9 +74,10 @@ is not found (exit 7).
   guess may assign the task to someone else. A task another account holds is refused
   (exit 11, the holder named) whatever the target: report it, and add `--reassign` only
   when the human or your step says to take it from them.
-- **label**: a label is a word of `labels` in the settings, which maps it to a state of a
-  sticker on the board; `--add` sets that state, `--remove` takes the sticker off when it
-  is in that state. Other stickers stay as they are. A word the settings do not map is refused (exit 3).
+- **label**: a label is a word of `labels` in the settings (quote one of several words),
+  which maps it to a state of a sticker on the board; `--add` sets that state, `--remove`
+  takes the sticker off when it is in that state. Other stickers stay as they are. A word
+  the settings do not map is refused (exit 3).
 - **assign**, **label**, **transition**: when the task is already so, they change nothing
   and say so; that is success.
 - Text of more than one line goes on stdin with `-`:
@@ -91,7 +95,8 @@ keeps and shows: headings, bold, italic, inline code, fenced code blocks, bullet
 numbered lists (nested by indentation) and links `[text](url)`; in a task's description
 Yougile drops inline code, so it shows as plain text there. Anything else, HTML too,
 shows as plain text. Write each paragraph on one line: Yougile shows every line break.
-`get` shows text as Yougile keeps it: descriptions in HTML, comments as you wrote them.
+`get` shows a description as Markdown made from Yougile's HTML (other tags left out, their
+text kept, an image as its URL) and comments as you wrote them.
 
 ## Project settings: `.lado/tracker.yaml`
 
@@ -135,7 +140,7 @@ the tracker; otherwise go on with it. Act on the exit code:
 | 7 | task not found, or not on the project's board | check the key; report it if the key came from someone else |
 | 9 | Yougile not reachable or did not answer | report it (network or VPN?) and send Yougile nothing more until you are told it answers again |
 | 10 | TLS failed | report it: a corporate CA goes in a file named by `SSL_CERT_FILE` |
-| 11 | Yougile refused the request, a status is not a column, an email is no account, or `assign` refused a task another account holds | read the line, fix the request once; if it still fails, report it (`assign`: report it, never try another email or `--reassign` on your own) |
+| 11 | Yougile refused the request, a status is not a column, an email is no account, or `assign` refused a task another account holds | read the line, fix the request once (a status: see **Status**); if it still fails, report it (`assign`: never retry; see **assign**) |
 | 12 | Yougile itself failed (5xx), or it still limits requests after the script waited once | report it |
 
 A failed write may have been applied. After exit 9 on a write, once you are told Yougile
