@@ -387,6 +387,12 @@ class HtmlToMarkdownTest(unittest.TestCase):
             "</li></ol>"),
             "- one\n- two\n  - nested\n\n1. first\n2. second\n   1. sub\n   - mixed")
 
+    def test_end_tags_left_out(self):
+        self.assertEqual(yougile.to_markdown(
+            "<p>a<p>b<ul><li>one<li><p>two<ul><li>n<li>m</ul><li>three</ul>"
+            "<table><tr><td>1<td>2<tr><td>3<td>4</table>"),
+            "a\n\nb\n\n- one\n- two\n  - n\n  - m\n- three\n\n1 | 2\n3 | 4")
+
     def test_other_tags_dropped_text_kept(self):
         self.assertEqual(yougile.to_markdown(
             '<p><span style="color:red">kept</span>&nbsp;<u>too</u>'

@@ -642,6 +642,12 @@ SKIP = {"script", "style", "head", "title", "template"}
 TAG = re.compile(r"<[a-zA-Z!/]")
 
 
+# A tag that starts closes the open tag HTML closes for it: <li> an open <li> of the same
+# list, a block an open <p>, a cell an open cell of the same row, a row an open row.
+IMPLIED = {"li": ({"li"}, {"ul", "ol"}), "td": ({"td", "th"}, {"tr", "table"}),
+           "th": ({"td", "th"}, {"tr", "table"}), "tr": ({"tr"}, {"table"})}
+
+
 class _Tree(html.parser.HTMLParser):
     """The HTML as a tree of (tag, attributes, children); entities decoded."""
 
@@ -650,7 +656,20 @@ class _Tree(html.parser.HTMLParser):
         self.root = ("", {}, [])
         self.open = [self.root]
 
+    def _close(self, closes, stops):
+        """Close the innermost open tag of `closes` unless one of `stops` is inside it."""
+        for i in range(len(self.open) - 1, 0, -1):
+            if self.open[i][0] in closes:
+                del self.open[i:]
+                return
+            if self.open[i][0] in stops:
+                return
+
     def handle_starttag(self, tag, attrs):
+        if tag in BLOCK:
+            self._close({"p"}, BLOCK - {"p"})
+        if tag in IMPLIED:
+            self._close(*IMPLIED[tag])
         node = (tag, dict(attrs), [])
         self.open[-1][2].append(node)
         if tag not in VOID:
