@@ -40,7 +40,12 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   - `transition`: without a target, lists the columns of the board the task can move to
     (its current one marked); with a target (a column title, a column id, or a word of `statuses`),
     moves the task by changing its column. A task already there changes nothing and says
-    so (success). `--comment` posts a comment after the move; without a target it is
+    so (success). A target that is neither a word of `statuses` nor a column of the board
+    is refused (exit 11) with the columns listed and the advice to map the word in
+    `statuses`; the agent then picks a column by meaning only when exactly one fits, and
+    says in its note which one, so the user can map it; when none or several fit, it asks
+    the human (sdlc's rule "pick by meaning; when none fits, ask the human"; the human at
+    triage of `improve/tracker-yougile-0-1-2`: option A). `--comment` posts a comment after the move; without a target it is
     refused (exit 2), never dropped. Moving does not touch
     Yougile's "completed" flag.
   - `comment`: posts a message to the task's chat and prints its id.
@@ -117,8 +122,16 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   links) for the description and the message's `textHtml`, and sends the Markdown as
   the message's plain `text` (the API requires both). If the converter fails, the text is
   sent escaped as plain paragraphs. Yougile drops inline code from descriptions (not from
-  comments), and SKILL.md says it shows there as plain text. `get` shows text as Yougile
-  keeps it, with no reverse conversion. *Source:* brief, "Text format"; design round Q9 ("согласен").
+  comments), and SKILL.md says it shows there as plain text. `get` shows a description
+  as Markdown converted back from Yougile's HTML: the same elements the script writes
+  (headings, bold, italic, code, lists, links as `[text](url)`), paragraphs apart by an
+  empty line, HTML entities decoded; any other tag is dropped and its text kept, an image
+  shows as its URL; no option prints the raw HTML. Comments show their plain `text`. So
+  an agent that quotes a description in a comment or a new task carries no tags.
+  *Source:* brief, "Text format"; design round Q9 ("согласен"); output of `get` from
+  0.1.2 on: the run of sdlc 0.3.0's flow `task` on a cloud board (2026-10-11), where `get`
+  printed `<p>…</p>`, and the human: "давай поправим вот это" (run
+  `improve/tracker-yougile-0-1-2`, triage, question 1: "как рекомендуешь").
 - **R10** One default write scope in SKILL.md: reading is always fine; create,
   transition, comment, assign, label or link only when the agent's role, its step or the
   human asks, and only on the tasks named. A process kit may allow more. *Source:* brief,
@@ -140,7 +153,8 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   R8 and the findings in its `kit-reports/`.
 - **R12** The script is tested against a fake Yougile on localhost (standard library
   `unittest` and `http.server`, as `tests/test_jira.py` of `tracker-jira-server`): its
-  requests, key lookup, the YAML subset, the mark, Markdown to HTML, 429 and every error
+  requests, key lookup, the YAML subset, the mark, Markdown to HTML and HTML back to
+  Markdown in `get`, 429 and every error
   path. Before the release the kit is tried on a live board in Yougile's cloud
   (`https://yougile.com`), in a test project the human names, with the account whose
   `YOUGILE_API_KEY` the human puts in the login shell's profile; every write of the trial
@@ -183,7 +197,7 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 | `kit.yaml` | manifest | R1, R2, R5 | name, version, description naming the nine actions; `expects.commands: [uv]`, `dependencies.lado: ">=0.30"`; no `supervisor:`, no `dependencies.skills` |
 | `uv` | command (expects) | R5 | runs `yougile.py` with the Python its metadata names on every project; a session without it does not start instead of failing at the first action |
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R4, R6, R8, R9, R10, R11 | the one skill the convention names; how to run each action, keys, Markdown, the settings with an example, the write scope, what each exit code means and what to do |
-| `skills/tracker/yougile.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R11 | the only way to Yougile without MCP; one file, standard library only; the nine commands, key lookup, settings, Markdown to HTML, the mark, the error table and the 429 wait |
+| `skills/tracker/yougile.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R11 | the only way to Yougile without MCP; one file, standard library only; the nine commands, key lookup, settings, Markdown to HTML and back for `get`, the mark, the error table and the 429 wait |
 | `tests/test_yougile.py` | tests (outside the skill) | R11, R12 | checks the script against a fake Yougile before any real board; outside `skills/` so it does not ship into agents' skill folders |
 | `README.md` | doc | R1, R2, R5, R7 | how to add the kit, that `uv` is required, how to make and keep the key, `YOUGILE_URL`, and where the format of `.lado/tracker.yaml` is (SKILL.md) |
 
@@ -224,4 +238,5 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-11 | 0.1.2 | `get` shows a description as Markdown, not HTML (R9, SKILL.md, yougile.py, tests). A status word neither in `statuses` nor a column: the refusal advises mapping it; the agent picks only one clearly fitting column and says which, else asks (F7.1, R3). Multi-word labels quoted in the Actions table (F3.1); `search --status` help names the column id (F5.1); the `assign` rule kept once, exit 11 refers to it (F6.1) | The run of sdlc 0.3.0's flow `task` with tracker-yougile 0.1.1 on a cloud board (2026-10-11): `get` printed raw HTML; report `kit-reports/tracker-yougile-0.1.1-2026-10-11-assess.md` (a3c8b37, full assessment of 5cda9b4); triage of run `improve/tracker-yougile-0-1-2`: "С остальным согласен", F7.1 option A |
 | 2026-10-10 | 0.1.1 | No trace of the trial's project: example key `ID-484` instead of a real one (SKILL.md, yougile.py, R4); BLUEPRINT and BACKLOG without the test board's, account's and task's names (F12.1–F12.3) and without the build session's message numbers (F9.1); `BRIEF.md` removed. README: `read -r`/`-rs` (F12.4); key requests go to `${YOUGILE_URL:-https://yougile.com}` (F12.5, R7). Repeated column titles shown with their ids, no "rename" advice (F3.1). `transition --comment` without a target refused (F3.2, R3). From the re-evaluation: a column id is a valid status (F3.3); a repeated column title is shown with its id in `get`, `search`, `create` and `transition` (F3.4); no reference to the build run's trial artifact (F9.2) | The human: "кит должен работать с любым проектом"; report `kit-reports/tracker-yougile-0.1.0-2026-10-10.md` (1070353, full assessment of d41dd09); triage of run `improve/tracker-yougile-0-1-1`: "Всё как рекомендуешь"; report `kit-reports/tracker-yougile-0.1.1-2026-10-11.md` (2cf56a0) and the release gate: reject "F3.3, F3.4, F9.2" |
