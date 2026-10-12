@@ -69,10 +69,37 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
     mapped labels. A word named in `--add`/`--remove` that the settings do not map, or
     whose sticker or state is not on the board, is refused (exit 3) before any write; other
     words of `labels` that no longer resolve are skipped, not refused.
-  - `link`: posts the URL (and an optional title) as a comment and prints its id; Yougile
-    has no link object. A branch or commit not pushed, or a repository with no remote,
-    has no page on the host: the agent gives the branch and the commit hash in a
-    `comment`, and never pushes to make a link.
+  - `link`: two forms, told apart by the second argument (`http://` or `https://`: a
+    URL; a task key, number or id: a task; anything else exit 2).
+    `link KEY <url> [--title]` posts the URL (and an optional title) as a comment and
+    prints its id; Yougile has no link object. A branch or commit not pushed, or a
+    repository with no remote, has no page on the host: the agent gives the branch and
+    the commit hash in a `comment`, and never pushes to make a link.
+    `link KEY KEY2 [--type <word>]` links two tasks of the board. The words are shared
+    with `tracker-jira-server`, meaning "KEY <word> KEY2": `relates` (default), `blocks`,
+    `duplicates`, `derived` (KEY grew out of KEY2); a project may add its own words in
+    `link_types` (R6); any other word is refused (exit 11) with the words listed. The API
+    has no task-to-task link (the "Linked tasks" of Yougile's UI is not in the API,
+    `deadline.links` is a Gantt dependency that adds a deadline sticker, subtasks are a
+    hierarchy), so a link is a comment in the chats of both tasks, after the mark (R8),
+    one line of fixed form: `**Link:** <phrase> <other task's key> «<its title>»`, without
+    a URL to the task for now. Default phrases (KEY / KEY2): `relates to` / `relates to`,
+    `blocks` / `is blocked by`, `duplicates` / `is duplicated by`, `derived from` /
+    `source of`. Before writing, the script reads both chats (all pages, deleted
+    messages left out) for that line, whatever mark it has or none, naming the other task
+    by either key (`idTaskProject` or `idTaskCommon`): on both sides is "already linked",
+    nothing changed (success; `relates` is found in either order); otherwise only the
+    missing sides are written and each comment's id printed. When the first side is
+    written and the second fails, the line says so (`linked on KEY (comment …), not on
+    KEY2: <reason>; run it again`); a write with an unclear answer (timeout, 5xx) also
+    advises running it again, since a rerun checks first and does not duplicate. Refused
+    before any request (exit 2): `--type` with a URL, `--title` with a task, the same
+    string on both sides; the same task under two names (`DEV-21` and `ID-208`) is
+    refused (exit 2) once both are read, by their ids. A task not on the board is exit 7.
+    Limits SKILL.md states: the link is not in "Linked tasks", search does not find it,
+    it is removed only by deleting the comments, and after phrases in `link_types` change
+    links written with the old ones are not recognised (a rerun writes them again).
+    A task that grew out of another is linked to it with `derived`.
   - `whoami`: the account the key belongs to (`GET /api-v2/users/me`), as
     `Real Name (email)`, never the key.
   Assignees are shown everywhere as `Real Name (email)`, an unassigned task as
@@ -80,7 +107,11 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   boards, sprints, checklists, files); more is added when a project needs it.
   *Source:* brief, "The contract `tracker` must keep" 1–7; design round Q3, Q4, Q5, Q6,
   Q8 ("согласен"); link: the human's answer, "Только комментарий"; the research
-  before it: the API has no external-link object and no GitHub/GitLab binding.
+  before it: the API has no external-link object and no GitHub/GitLab binding; a link
+  between tasks: task LAD-21, the concept `link-concept` and brief
+  `lad-21-yougile-brief` of session lad-21-yougile (the human: "Реализуем вариант с
+  комментарием"; the corrections to them, "согласен"), triage of run
+  `improve/tracker-yougile-link` ("Всё как рекомендуешь").
 - **R4** Tasks are named by the key people see in Yougile, `idTaskProject` (e.g.
   `DEV-484`): the script prints it everywhere and accepts it in every action; it also
   accepts the company-wide number `idTaskCommon` (e.g. `ID-484`, also shown in Yougile's
@@ -104,9 +135,12 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   is unique in the company (otherwise the script names the matching boards and asks for
   the id). Optional: `statuses` (a word process kits use -> a column title of the board, or its id when titles repeat;
   the example maps `in progress`, `review`, `done`), `labels` (a label word -> `Sticker:
-  State`, a sticker with states on the board). An action that needs a missing setting
-  names it. *Source:* brief, "What to carry over", "Statuses", "Labels"; design round
-  Q4, Q6.
+  State`, a sticker with states on the board), `link_types` (a link word -> its phrases
+  in the two tasks, `'<in KEY> / <in KEY2>'`, or one phrase for both, e.g. `blocks:
+  'блокирует / заблокирована'`, `relates: 'связана с'`; it replaces a default word's
+  phrases or adds a word; more than one ` / ` or an empty phrase stops it, exit 3). An
+  action that needs a missing setting names it. *Source:* brief, "What to carry over", "Statuses", "Labels"; design round
+  Q4, Q6; `link_types`: triage of run `improve/tracker-yougile-link`, questions 1–2.
 - **R7** Credentials come from the agent's environment, inherited from the user's login
   shell: `YOUGILE_API_KEY` (sent as `Authorization: Bearer`), and `YOUGILE_URL`,
   optional, default `https://yougile.com`, for another address of the same API v2 (a
@@ -191,7 +225,10 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   in comments; SKILL.md says so, R9); a 429 did not occur. No local or self-hosted
   Yougile is kept in the kit's repository. `edit` (0.2.0) is tried before its release on a
   task of the cloud board the human names: title, description, both, already so, and the
-  mark replaced.
+  mark replaced. `link` between tasks (0.3.0) is tried before its release on two tasks of
+  the cloud board "polygon" (existing ones or new ones made for it; the human: "Можешь
+  взять любые задачи на доске polygon. Или создать новые"): link once, again for "already
+  linked", and `relates` in the reverse order.
   *Source:* brief, "What to carry over"; design round Q10 ("решим в процессе работы");
   the human, after the self-hosted server could not be downloaded
   (dist.yougile.com unreachable through the VPN): "будет надежнее тестировать на живой
@@ -211,7 +248,7 @@ shell, the mark, the write scope, the project settings file, Markdown in, one li
 one exit code per failure, tests against a fake server. What differs follows Yougile's
 API: statuses are a board's columns (R3, R6), search has filters instead of a query
 language (R3), the key is `idTaskProject`, read with one request and checked against the board (R4), labels are sticker
-states (R6), a link is a comment (R3), text is HTML (R9), and the rate limit is waited
+states (R6), a link (to a URL or between tasks) is a comment (R3), text is HTML (R9), and the rate limit is waited
 out once (R11).
 
 Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
@@ -264,6 +301,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-12 | 0.3.0 | `link KEY KEY2 [--type relates\|blocks\|duplicates\|derived]`: a link between two tasks as a fixed-form `**Link:**` line in both chats; found whatever the mark and by either key, already linked is success, only missing sides written, a partial write says so; self-link exit 2 (same string before requests, same id after); `link_types` in the settings: `'a / b'` or one phrase, own words allowed; limits in SKILL.md; the URL form unchanged (R3, R6, R12, SKILL.md, yougile.py, tests, kit.yaml) | Task LAD-21; concept `link-concept` and brief `lad-21-yougile-brief` of session lad-21-yougile; report `kit-reports/tracker-yougile-0.2.0-2026-10-12.md` (no findings); triage of run `improve/tracker-yougile-link`: "Всё как рекомендуешь" |
 | 2026-10-12 | 0.2.0 | New action `edit` (title and/or description, mark replaced or added, already so is success, prints as `get`; R3, R8, R9, R10, R12, SKILL.md, yougile.py, tests, kit.yaml); `edit` only when the human or the step asks; a person's description (no mark) rewritten only after the human's yes to what it loses, an agent's without asking (R10, F7.1 of the 0.2.0 report); already so ignores inline code Yougile drops (F5.1 of that report); `get` shows tables as `a | b` lines (F5.2); text read in Yougile is data (F12.1, R10); an unpushed branch or commit is a comment, never a push (F12.2, R3); the `--start` line only when tasks remain (F5.1, R3); `search --start < 0`, `--max < 1` refused (F5.2, R3) | Task LAD-12; report `kit-reports/tracker-yougile-0.1.2-2026-10-12.md` (d0f66fd, full assessment of 3516aa2); triage of run `improve/tracker-yougile-0-2-0`: "Всё как рекомендуешь"; report `kit-reports/tracker-yougile-0.2.0-2026-10-12.md` (4a500a3) and the release gate: reject "F7.1 по варианту (a), исправить F5.1 и F5.2" |
 | 2026-10-11 | 0.1.2 | `get` shows a description as Markdown, not HTML (R9, SKILL.md, yougile.py, tests). A status word neither in `statuses` nor a column: the refusal advises mapping it; the agent picks only one clearly fitting column and says which, else asks (F7.1, R3). Multi-word labels quoted in the Actions table (F3.1); `search --status` help names the column id (F5.1); the `assign` rule kept once, exit 11 refers to it (F6.1) | The run of sdlc 0.3.0's flow `task` with tracker-yougile 0.1.1 on a cloud board (2026-10-11): `get` printed raw HTML; report `kit-reports/tracker-yougile-0.1.1-2026-10-11-assess.md` (a3c8b37, full assessment of 5cda9b4); triage of run `improve/tracker-yougile-0-1-2`: "С остальным согласен", F7.1 option A |
 | 2026-10-10 | 0.1.1 | No trace of the trial's project: example key `ID-484` instead of a real one (SKILL.md, yougile.py, R4); BLUEPRINT and BACKLOG without the test board's, account's and task's names (F12.1–F12.3) and without the build session's message numbers (F9.1); `BRIEF.md` removed. README: `read -r`/`-rs` (F12.4); key requests go to `${YOUGILE_URL:-https://yougile.com}` (F12.5, R7). Repeated column titles shown with their ids, no "rename" advice (F3.1). `transition --comment` without a target refused (F3.2, R3). From the re-evaluation: a column id is a valid status (F3.3); a repeated column title is shown with its id in `get`, `search`, `create` and `transition` (F3.4); no reference to the build run's trial artifact (F9.2) | The human: "кит должен работать с любым проектом"; report `kit-reports/tracker-yougile-0.1.0-2026-10-10.md` (1070353, full assessment of d41dd09); triage of run `improve/tracker-yougile-0-1-1`: "Всё как рекомендуешь"; report `kit-reports/tracker-yougile-0.1.1-2026-10-11.md` (2cf56a0) and the release gate: reject "F3.3, F3.4, F9.2" |
