@@ -88,8 +88,8 @@ environment they started with.
 
 Each project commits its settings to its own repository, so every worktree has them. Only
 `board` is required (the board's title, or its id when the title is not unique);
-`statuses` maps the words process kits use to columns, and `labels` maps label words to a
-sticker's state. The example and the format, a strict subset of YAML, are in
+`statuses` maps the words process kits use to columns, `labels` maps label words to a
+sticker's state, and `link_types` gives link words their phrases in the two tasks. The example and the format, a strict subset of YAML, are in
 [`skills/tracker/SKILL.md`](skills/tracker/SKILL.md), "Project settings".
 
 Statuses are the board's columns; write column, sticker and state names as Yougile shows

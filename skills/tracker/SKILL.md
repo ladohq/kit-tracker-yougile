@@ -83,8 +83,8 @@ is not found (exit 7).
   `comment`, and never push to make a link.
 - **link** of two tasks (a second argument that is not a URL) means "DEV-1 `<type>`
   DEV-2": `relates` (the default), `blocks`, `duplicates`, `derived` (DEV-1 grew out of
-  DEV-2). A task that grew out of another, e.g. one you filed while working on it, is
-  linked to it with `derived`. The script writes a comment in each task's chat, one line
+  DEV-2). When you link a task to the one it grew out of, e.g. one you filed while working
+  on it, use `derived`. The script writes a comment in each task's chat, one line
   after the mark: `**Link:** <phrase> <other task's key> «<its title>»`, with the phrases
   `relates to` / `relates to`, `blocks` / `is blocked by`, `duplicates` / `is duplicated
   by`, `derived from` / `source of` (in DEV-1 / in DEV-2). `link_types` in the settings

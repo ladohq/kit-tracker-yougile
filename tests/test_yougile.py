@@ -892,6 +892,20 @@ class LinkTasksTest(YougileTestCase):
             {"id": 8, "text": "see **Link:** relates to DEV-2"}]
         self.assertIn("DEV-1: linked (relates to DEV-2)", self.link("DEV-1", "DEV-2"))
 
+    def test_task_without_project_key_is_found_by_its_id(self):
+        self.task(T2)["idTaskProject"] = ""
+        out = self.link("DEV-1", T2)
+        self.assertIn("DEV-1: linked (relates to %s)" % T2, out)
+        self.assertEqual(self.link("DEV-1", T2),
+                         "DEV-1: already linked (relates to %s), nothing changed\n" % T2)
+
+    def test_rate_limit_on_the_second_side_advises_only_a_rerun(self):
+        self.api.route("POST", "chats/%s/messages" % T2, {"message": "slow"}, status=429)
+        err = self.assertFails(yougile.SERVER_ERROR, "linked on DEV-1 \\(comment \\d+\\), "
+                                                     "not on DEV-2: .*\\(429\\).*was applied; "
+                                                     "run it again$", "link", "DEV-1", "DEV-2")
+        self.assertNotIn("report it", err)
+
     def test_writes_only_the_missing_side(self):
         self.api.data["messages"][T1] = [{"id": 5, "text": "**Link:** blocks DEV-2 «Logout»"}]
         out = self.link("DEV-1", "DEV-2", "--type", "blocks")

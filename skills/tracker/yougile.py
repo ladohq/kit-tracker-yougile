@@ -56,6 +56,7 @@ APPLIED = ("; the change may have been applied: once Yougile answers again, chec
            "get before running it again")
 # Yougile answered a 5xx, so nobody will say it answers again: check before running again.
 APPLIED_ANSWERED = "; the change may have been applied: check with get before running it again"
+REPORT_IT = "; report it"
 STOP_ALL = ("; the lead tells every agent to stop using Yougile until the human sets a new "
             "key in YOUGILE_API_KEY and restarts the session")
 WAIT = "; send Yougile nothing more until you are told it answers again"
@@ -393,8 +394,8 @@ class Yougile:
             return Failure(NOT_FOUND, missing or "not found (404)%s" % detail)
         if code == 429:
             return Failure(SERVER_ERROR, "Yougile is rate limiting requests (429) after a "
-                                         "wait: nothing of this request was applied; report "
-                                         "it")
+                                         "wait: nothing of this request was applied"
+                           + REPORT_IT)
         if code >= 500:
             # A proxy's 502/504 can follow an applied write.
             return Failure(SERVER_ERROR, "Yougile failed (%d)%s%s" % (
@@ -1295,7 +1296,9 @@ def cmd_link(api, args):
 
 def _link_comment(api, task, other, phrase):
     """The id of a message in the task's chat that links it to other with the phrase."""
-    keys = [k for k in (other.get("idTaskProject"), other.get("idTaskCommon")) if k]
+    # The id too: a task without idTaskProject is written by its id (key_of).
+    keys = [k for k in (other.get("idTaskProject"), other.get("idTaskCommon"),
+                        other.get("id")) if k]
     # Whatever mark the message has, or none: the fixed line alone makes the link.
     line = re.compile(r"^[ \t]*(?:\*\*)?Link:(?:\*\*)?[ \t]+%s[ \t]+(?:%s)(?![\w-])"
                       % (re.escape(phrase), "|".join(map(re.escape, keys))),
@@ -1319,6 +1322,7 @@ def _link_failure(failure, key, done):
     rerun = ("send Yougile nothing more until you are told it answers again, then run it "
              "again" if wait else "run it again")
     if done:
+        reason = reason.replace(REPORT_IT, "")  # the rerun is the advice, not a report
         message = "linked on %s (comment %s), not on %s: %s; %s" % (
             key_of(done[0]), done[3], key, reason, rerun)
     elif unsure:
