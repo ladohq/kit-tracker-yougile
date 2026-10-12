@@ -2,7 +2,7 @@
 
 - Дата: 2026-10-12
 - Кит: корень worktree рана `improve/tracker-yougile-link` (путь задан задачей)
-- Коммит: `9a1a1da` (визит 1 шага `evaluate`; blueprint `dcd8211`)
+- Коммит: `d020dc1` (визит 2 шага `evaluate`; визит 1 — `9a1a1da`; blueprint `dcd8211`)
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно `kit-reports/tracker-yougile-0.2.0-2026-10-12.md`
   (оценка `aa5f135`; эту базу называет план, она же — оценка `assessment` этого рана),
@@ -23,6 +23,13 @@
   ошибок `_network_failure`/`_http_failure`). Остальной код yougile.py не менялся с
   полного прохода `aa5f135`. Находок одного прохода: 4, все оставлены как
   подтверждённые (с доказательством в находке); отброшенных нет.
+- Визит 2 (`d020dc1`). Изменение после визита 1 (`git diff 5463dc2 d020dc1`): один коммит,
+  README.md, SKILL.md, yougile.py, тесты (≈25 строк). Три прохода критик сделал сам:
+  (1) от находок визита 1 к diff, (2) от кода (`REPORT_IT`, `_link_comment`,
+  `_link_failure`) к двум новым тестам и к остальным местам с «report it» в yougile.py,
+  (3) от SKILL.md к правилу записи и к BLUEPRINT R3. Полный проход перед вердиктом: README.md
+  и SKILL.md целиком, yougile.py в части `link` (как в визите 1). Находок одного прохода: 1,
+  оставлена как подтверждённая (F5.4); отброшенных нет.
 
 Находки — кандидаты для человека, а не оценка «сдал / не сдал».
 
@@ -33,9 +40,9 @@
 | a. `lado kits check` | OK; 0 предупреждений |
 | a. Бюджет | зелёный; жёлтых и красных мер нет |
 | a. Потоки | 0 нарисовано (потоков нет, R2); скелетов в BLUEPRINT.md нет («Flow skeletons: none») |
-| b. Рубрика | 4 находки (0 high, 1 medium, 3 low); 9 из 12 критериев без находок |
-| Охват | повторная оценка изменённого текста и полный проход по 5 файлам из diff (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/yougile.py — в части `link`) |
-| Правило остановки | не выполнено: 0 high, 1 medium (F5.1) — совет для ворот выпуска, не блок |
+| b. Рубрика | 1 открытая находка (0 high, 0 medium, 1 low: F5.4); визит 1: F5.1, F5.2, F5.3, F9.1 — RESOLVED; 11 из 12 критериев без открытых находок |
+| Охват | повторная оценка изменённого текста; визит 1 — полный проход по 5 файлам из diff (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md, skills/tracker/yougile.py — в части `link`); визит 2 — по README.md, SKILL.md, yougile.py (в части `link`) |
+| Правило остановки | выполнено: 0 high, 0 medium в изменённом тексте (визит 1 — не выполнено из-за F5.1, теперь RESOLVED) |
 
 Счёт относится только к тому, что названо в строке «Охват».
 
@@ -78,19 +85,19 @@ Overall: green
 no flows in . or BLUEPRINT.md: nothing to do (код выхода 0)
 ```
 
-Тесты: `uv run --no-project python -m unittest discover -s tests` — `Ran 104 tests`, `OK`.
+Тесты (визит 2): `uv run --no-project python -m unittest discover -s tests` — `Ran 106 tests`, `OK`.
+`lado kits check`, бюджет и `--compare` визита 2 дают тот же вывод, что выше.
 
 ## Вердикт
 
-`approved`: `lado kits check` без ошибок, бюджет зелёный, `--compare` без расхождений,
-открытых high нет. F5.1 (medium) и три low не блокируют; правило остановки не выполнено
-из-за F5.1 — решать человеку на воротах (вопрос 1).
+`approved` (визит 2): `lado kits check` без ошибок, бюджет зелёный, `--compare` без
+расхождений, открытых high нет. Находки визита 1 исправлены; осталась одна low (F5.4,
+формулировка BLUEPRINT R3), она не блокирует. Правило остановки выполнено.
 
 ## Исправить в первую очередь
 
-1. Правило `derived` в SKILL.md: сказать, что оно выбирает слово, а не велит связывать без
-   просьбы (или, если человек хотел обратного, внести это в правило записи) (F5.1).
-2. Задача без `idTaskProject`: искать связь и по `id` другой задачи (F5.2).
+1. BLUEPRINT R3: та же формулировка `derived`, что в SKILL.md (F5.4; правит владелец
+   блюпринта, не автор).
 
 ## Находки
 
@@ -112,78 +119,47 @@ on the tasks named.» — `link` двух задач пишет только в 
 
 ### 4. Независимая проверка
 
-Не применимо: потоков нет. Проба на доске «polygon» (R12) — в build-report, с id
-комментариев и выводом `get`.
+Не применимо: потоков нет. Проба на доске «polygon» (R12) — в build-report визита 1, с id
+комментариев и выводом `get`. В визите 2 её не повторяли: правки касаются задачи без
+ключа проекта и текста ошибки 429, и оба случая покрыты тестами на фейковом API.
 
 ### 5. Противоречия
 
-- **F5.1** [medium] `skills/tracker/SKILL.md:86` 
-  > DEV-2). A task that grew out of another, e.g. one you filed while working on it, is
-  > linked to it with `derived`. The script writes a comment in each task's chat, one line
+- **F5.4** [low] `BLUEPRINT.md:102`
+  > A task that grew out of another is linked to it with `derived`.
 
-  Правило читается и как выбор слова, и как приказ связывать каждую задачу, заведённую
-  по ходу работы. Второе прочтение спорит с правилом записи SKILL.md:29–30 «Create,
-  transition, comment, assign, label or link only when your / role, your step or the
-  human asks for it», ведь скилл — не роль, не шаг и не человек. Одни агенты будут без
-  просьбы писать от имени пользователя в две задачи, другие нет. Бриф называет это
-  «правило, когда связывать». Но правило kit-sdlc «задача, созданная в ходе прогона,
-  связывается с задачей прогона» он выносит в отдельную правку («Вне задачи»). Значит,
-  «когда» решает кит процесса, а скилл — какое слово.
-  Fix: «When you link a task to the one it grew out of (e.g. one you filed while working
-  on it), use `derived`.» Если человек хочет, чтобы связывали всегда, — дописать это
-  исключение в правило записи SKILL.md:29–30. Passes: 1/3, confirmed (обе цитаты в файле;
-  description SKILL.md:10 добавляет триггер «link it to the task it grew out of»).
-- **F5.2** [low] `skills/tracker/yougile.py:1298` 
-  > keys = [k for k in (other.get("idTaskProject"), other.get("idTaskCommon")) if k]
-
-  Комментарий пишет ключ `key_of(other)`, а это `return task.get("idTaskProject") or
-  task.get("id")` (yougile.py:535). У задачи без `idTaskProject` в строку попадает её
-  `id`, а поиск ищет только по `idTaskProject` и `idTaskCommon`. Такая связь никогда не
-  станет «already linked», и каждый повтор, который SKILL.md советует после сбоя,
-  допишет её ещё раз. Проверено на образце: `_link_comment` для `other={'id':
-  '0f0e…0001','idTaskCommon':'ID-5'}` и строки `**Link:** relates to 0f0e…0001 «x»`
-  вернул `None`. Бывают ли такие задачи в Yougile, не проверено; запасной вариант в
-  `key_of` говорит, что автор это допускал.
-  Fix: добавить `other.get("id")` в `keys`. Passes: 1/3, confirmed (запуск на образце).
-- **F5.3** [low] `skills/tracker/yougile.py:1319` 
-  > rerun = ("send Yougile nothing more until you are told it answers again, then run it "
-
-  При 429 после ожидания (exit 12) `_link_failure` склеивает строку `_http_failure` с
-  советом и выдаёт: «linked on DEV-1 (comment c1), not on DEV-2: Yougile is rate
-  limiting requests (429) after a wait: nothing of this request was applied; report it;
-  run it again». «report it» и «run it again» стоят рядом. Агент, скорее всего, сделает
-  и то и другое. Это безопасно, потому что повтор сначала проверяет, но строка
-  противоречит себе.
-  Fix: убрать «; report it» из reason, когда к нему добавляется совет повторить. Passes:
-  1/3, confirmed (вывод `_link_failure` на этом сбое, запуск выше).
+  SKILL.md после F5.1 говорит только о выборе слова: «When you link a task to the one it
+  grew out of, e.g. one you filed while working / on it, use `derived`» (SKILL.md:86–87).
+  BLUEPRINT R3 по-прежнему звучит как приказ связывать. Агенты BLUEPRINT не читают, но
+  следующий автор, сверяясь с ним, может вернуть в SKILL.md старое прочтение. Автор
+  оставил R3 как есть сознательно: менять блюпринт сверх раздела 4 ему нельзя.
+  Fix: в R3 написать «A task linked to the one it grew out of uses `derived`; when to
+  link is the write scope's and the process kit's». Править аналитику или человеку.
+  Passes: 1/3, confirmed (`grep -nF` находит обе строки).
 
 ### 6. Дублирование
 
 Повторы BLUEPRINT R3 ↔ SKILL.md (фразы, «already linked», ограничения) оправданы:
-BLUEPRINT — требования, SKILL.md — текст для агента. Абзац о сбое записи (SKILL.md:185–186)
-отсылает к **link** («as its line says (see **link**)»), не повторяя правило. Похожих
+BLUEPRINT — требования, SKILL.md — текст для агента; расхождение одной фразы — F5.4.
+Абзац о сбое записи (SKILL.md:185–186) отсылает к **link**, не повторяя правило. Похожих
 абзацев скрипт не нашёл.
 
 ### 7. Когда звать человека
 
 Неизвестное слово — «pick the listed word that fits, never invent one» (SKILL.md:92);
-сбой — к коду выхода и «report» через супервизора (без изменений). Новых решений,
-которые принимает только человек, нет; F5.1 — вопрос 1.
+сбой — к коду выхода и «report» через супервизора (без изменений). Новых решений для
+человека нет: вопрос визита 1 решён (F5.1, «только слово»).
 
 ### 8. Циклы при повторном визите
 
 Не применимо: потоков нет. Повтор команды: «it checks first and writes no link twice»
-(SKILL.md:97), но см. F5.2.
+(SKILL.md:97); после F5.2 это верно и для задачи без `idTaskProject`.
 
 ### 9. Краткость и «почему»
 
-- **F9.1** [low] `README.md:91` 
-  > `statuses` maps the words process kits use to columns, and `labels` maps label words to a
-
-  README перечисляет необязательные настройки, а новую `link_types` не называет.
-  Пользователь, который настраивает проект по README, о ней не узнает. Формат лежит в
-  SKILL.md, и README туда отсылает. Fix: добавить «, and `link_types` gives link words
-  their phrases». Passes: 1/3, confirmed (`grep -n link_types README.md` — пусто).
+Новые строки кода несут свой «почему»: «# The id too: a task without idTaskProject is
+written by its id (key_of).», «# the rerun is the advice, not a report». README назвал
+`link_types` (F9.1 RESOLVED).
 
 ### 10. Описания скиллов
 
@@ -207,7 +183,7 @@ it grew out of» (SKILL.md:6–10). Зависимых и ожидаемых с�
 | Известная дыра | Находка, или как кит её закрывает |
 |---|---|
 | 1. Красная проверка без учёта причины в окружении | Без изменений: SKILL.md отделяет сообщения `uv`/Python от кодов скрипта; `link` двух задач различает сбой с неясным ответом (exit 9, 12) и отказ. |
-| 2. Работа вне потока, слияние без ворот | Не применимо: потоков и слияний нет; `link` ограничен SKILL.md:29–30 (см. F5.1). |
+| 2. Работа вне потока, слияние без ворот | Не применимо: потоков и слияний нет; `link` ограничен SKILL.md:29–30; правило `derived` задаёт только слово (F5.1 RESOLVED). |
 | 3. Путь вне worktree рана | Без изменений: `${SKILL_DIR}`, настройки ищутся до корня репозитория. |
 | 4. Вердикт без порога важности | Не применимо: рецензента нет. |
 | 5. Зависимый скилл пишет или спрашивает там, где роли нельзя | Не применимо: зависимых скиллов нет. |
@@ -236,13 +212,26 @@ a URL or between tasks) is a comment»), строка 0.3.0 журнала. Эл
 - Текст комментария — RESOLVED: «**Link:** » + фраза, `key_of(other)`, «название»;
   `textHtml` с `html.escape`; URL задачи нет.
 - «Уже связано» — RESOLVED: `_link_comment` — `api.pages`, без удалённых, `**`
-  необязательны, любая метка, оба ключа, `(?![\w-])` против более длинного ключа (кроме
-  случая F5.2).
+  необязательны, любая метка, оба ключа, `(?![\w-])` против более длинного ключа (после
+  F5.2 — и по `id`).
 - Частичная запись и неясный ответ — RESOLVED: `_link_failure`; тесты
   `test_second_side_fails`, `test_unclear_answer_advises_running_it_again` (оговорка F5.3).
 - argparse, тесты (18 в `LinkTasksTest`, всего 104 OK), SKILL.md (описание, таблица,
   пункт **link**, пример, exit 11, абзац о сбое), kit.yaml 0.3.0, README, проба на
   «polygon» — RESOLVED, сверено с файлами. Список build-report «fixed» совпадает с diff.
+
+- Визит 1, **F5.1** RESOLVED — SKILL.md:86–87 «When you link a task to the one it grew out
+  of, e.g. one you filed while working / on it, use `derived`»: только слово, когда — по
+  правилу записи SKILL.md:29–30. Остаток в BLUEPRINT R3 — F5.4.
+- Визит 1, **F5.2** RESOLVED — yougile.py:1300–1301 «keys = [k for k in
+  (other.get("idTaskProject"), other.get("idTaskCommon"), / other.get("id")) if k]»; тест
+  `test_task_without_project_key_is_found_by_its_id` проходит.
+- Визит 1, **F5.3** RESOLVED — yougile.py:1325 «reason = reason.replace(REPORT_IT, "")» только
+  при частичной записи. Другие строки с «report it» не задеты: `grep -n "report it"` находит
+  только константу и yougile.py:1156 (без «; »). Тест
+  `test_rate_limit_on_the_second_side_advises_only_a_rerun` проходит.
+- Визит 1, **F9.1** RESOLVED — README.md:92 «and `link_types` gives link words their phrases
+  in the two tasks».
 
 ## Вырезанные правила
 
@@ -266,8 +255,4 @@ a URL or between tasks) is a comment»), строка 0.3.0 журнала. Эл
 
 ## Вопросы человеку
 
-1. Правило `derived` (F5.1): скилл задаёт только слово («связывая задачу с той, из
-   которой она выросла, бери `derived`»), а *когда* связывать, решает кит процесса
-   (правка kit-sdlc после этой)? Или агент связывает такую задачу всегда, без просьбы?
-   Рекомендую первое: так задумано разделение в брифе, и правило записи остаётся
-   единственным местом, где сказано, когда писать.
+Нет (вопрос 1 визита 1 решён: вариант «только слово», F5.1).
