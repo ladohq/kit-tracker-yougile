@@ -99,7 +99,7 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
     Limits SKILL.md states: the link is not in "Linked tasks", search does not find it,
     it is removed only by deleting the comments, and after phrases in `link_types` change
     links written with the old ones are not recognised (a rerun writes them again).
-    A task that grew out of another is linked to it with `derived`.
+    A task linked to the one it grew out of uses `derived`; when to link is the process kit's (the human at the release gate: F5.1, "only the word").
   - `whoami`: the account the key belongs to (`GET /api-v2/users/me`), as
     `Real Name (email)`, never the key.
   Assignees are shown everywhere as `Real Name (email)`, an unassigned task as
