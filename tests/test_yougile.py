@@ -597,6 +597,18 @@ class CommandsTest(YougileTestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("\nDescription:\n[LADO: developer]\n\n%s\n\nComments" % text, out)
 
+    def test_get_shows_an_image_as_a_link(self):
+        # An image pasted into a description, as the cloud sends it (LAD-24): a link, no <img>.
+        url = ("https://en.yougile.com/user-data/0d6c6a1e-2f4b-4c1e-9a7d-3b5e8f1c2a90/"
+               "Screenshot%202026-10-12%20at%2022.37.57.png?previews[]=-256-preview@265x121")
+        self.task(T1)["description"] = (
+            '<p><br><a target="_blank" rel="noopener noreferrer" href="%s">'
+            'Screenshot 2026-10-12 at 22.37.57.png</a>[LADO: author]</p>' % url)
+        code, out, err = self.run_yougile("get", "DEV-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("\nDescription:\n[Screenshot 2026-10-12 at 22.37.57.png](%s)"
+                      "[LADO: author]\n" % url, out)
+
     def test_create_in_a_status_and_by_hand(self):
         with mock.patch.dict(os.environ, {"LADO_AGENT": ""}):
             code, out, _ = self.run_yougile("create", "--title", "New", "--status", "review")

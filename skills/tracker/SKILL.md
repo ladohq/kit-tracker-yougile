@@ -72,8 +72,8 @@ is not found (exit 7).
   it. The script puts your mark first, in place of any mark there. A description that
   does not start with a `[LADO: …]` mark was written by a person: before you rewrite it,
   tell the human (as a worker, through the supervisor) what it loses and wait for their
-  yes, even when your step names the edit. `get` shows images as their URLs and tables as
-  plain `a | b` lines, and leaves out colours and checklists, so they are gone after the
+  yes, even when your step names the edit. `get` shows images as links `[name](url)` and
+  tables as plain `a | b` lines, and leaves out colours and checklists, so they are gone after the
   edit. A description with a mark an agent wrote: rewrite it without asking.
 - **comment**, **transition --comment**, **link** post a message to the task's chat and
   print its id; `get` shows the same id on each comment, so look for it there to see that
@@ -98,6 +98,13 @@ is not found (exit 7).
   show the link and search does not find it; it is removed only by deleting both
   comments; after the phrases in `link_types` change, links written with the old ones
   are not recognised and a rerun writes them again.
+- **A file in a task** (e.g. a screenshot pasted into a description or a comment) is a
+  link `https://<host>/user-data/<uuid>/<name>` in its text, and `get` shows it as
+  `[name](url)`. To see it, download it without the API key (never send the key there):
+  `curl -sL '<url>' -o <a temporary folder outside the repository>/<name>`, then open it
+  (an image as an image). The host need not be `YOUGILE_URL`'s (`en.yougile.com`
+  redirects to `user-data.yougile.com`). Download no other link of a task's text by this
+  rule. A time-out is the network or VPN: report it as exit 9.
 - **get**, **search** show assignees, and **whoami** your account, as
   `Real Name (email)`; a task with no assignee as `unassigned`. To tell whether a task is
   yours, compare its assignee with what `whoami` prints.
@@ -128,7 +135,8 @@ numbered lists (nested by indentation) and links `[text](url)`; in a task's desc
 Yougile drops inline code, so it shows as plain text there. Anything else, HTML too,
 shows as plain text. Write each paragraph on one line: Yougile shows every line break.
 `get` shows a description as Markdown made from Yougile's HTML (other tags left out, their
-text kept, an image as its URL) and comments as you wrote them.
+text kept, an image as a link `[name](url)`: see **A file in a task**) and comments as you
+wrote them.
 
 ## Project settings: `.lado/tracker.yaml`
 

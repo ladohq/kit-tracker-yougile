@@ -14,7 +14,10 @@ lists `skills: [tracker]`, so a session without a tracker kit refuses to start.
 Where it was tried: against a fake Yougile in its tests, and on 2026-10-10 on a live board
 in Yougile's cloud, where all nine actions and the refused-key, not-found and settings
 errors worked; on 2026-10-12 `edit` (0.2.0) was tried there too: title, description, both,
-already so, and the mark of another agent replaced. Only the cloud is tried: a self-hosted
+already so, and the mark of another agent replaced; on 2026-10-12 `link` between two tasks
+(0.3.0) on the board "polygon": once, again (already linked) and `relates` in the reverse
+order; and on 2026-10-12 an image of a task (LAD-24) was downloaded with `curl` and opened,
+once `user-data.yougile.com` was in the VPN split. Only the cloud is tried: a self-hosted
 Yougile (`YOUGILE_URL`) serves the same API but has not been tried.
 
 ## Install and start
@@ -26,7 +29,9 @@ lado start <repo> --kit <process-kit> --kit tracker-yougile
 
 The agents need `uv` on their PATH (it runs the script and finds or installs the Python
 3.9 or newer it names; a session without `uv` does not start) and a network path to
-Yougile.
+Yougile. To read a file in a task (a screenshot), they also need a network path to
+`user-data.yougile.com`, where Yougile keeps files, and `curl`; behind a VPN, add that
+host to its split.
 
 ## Credentials
 
