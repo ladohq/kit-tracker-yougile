@@ -99,12 +99,14 @@ is not found (exit 7).
   comments; after the phrases in `link_types` change, links written with the old ones
   are not recognised and a rerun writes them again.
 - **A file in a task** (e.g. a screenshot pasted into a description or a comment) is a
-  link `https://<host>/user-data/<uuid>/<name>` in its text, and `get` shows it as
-  `[name](url)`. To see it, download it without the API key (never send the key there):
-  `curl -sL '<url>' -o <a temporary folder outside the repository>/<name>`, then open it
-  (an image as an image). The host need not be `YOUGILE_URL`'s (`en.yougile.com`
-  redirects to `user-data.yougile.com`). Download no other link of a task's text by this
-  rule. A time-out is the network or VPN: report it as exit 9.
+  link `https://<host>/user-data/<uuid>/<name>` in its text: `get` shows it in a
+  description as `[name](url)`, in a comment as the comment's text has it. To see it,
+  download it without the API key (never send the key there): `curl -fsSL '<url>' -o <a
+  temporary folder outside the repository>/<name>`, then open it (an image as an image).
+  The host need not be `YOUGILE_URL`'s (`en.yougile.com` redirects to
+  `user-data.yougile.com`). Download no other link of a task's text by this rule. Report
+  a failed download as **When the script fails** says (a time-out is the network or VPN),
+  but it is not exit 9: only the file storage is unreachable, so go on using the tracker.
 - **get**, **search** show assignees, and **whoami** your account, as
   `Real Name (email)`; a task with no assignee as `unassigned`. To tell whether a task is
   yours, compare its assignee with what `whoami` prints.
