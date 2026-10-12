@@ -6,7 +6,7 @@
 """Yougile from the command line: REST API v2, a bearer API key.
 
 Commands: search, get, create, edit, transition, comment, assign, label, link, whoami
-(run with --help). Credentials come from YOUGILE_API_KEY and YOUGILE_URL (optional, default
+(run with --help); link posts a URL, or links two tasks with a comment in each. Credentials come from YOUGILE_API_KEY and YOUGILE_URL (optional, default
 https://yougile.com, or a self-hosted Yougile's address); the key is never printed.
 Tasks are named by the key people see (idTaskProject, e.g. DEV-484), the company-wide
 number (idTaskCommon, e.g. ID-484) or their id; tasks of other boards are not found.
@@ -62,7 +62,15 @@ WAIT = "; send Yougile nothing more until you are told it answers again"
 NOT_YOUGILE = ("the answer is not Yougile's API: YOUGILE_URL is not Yougile's address "
                "(https://yougile.com, or your self-hosted Yougile's)")
 CONFIG_PATH = os.path.join(".lado", "tracker.yaml")
-CONFIG_MAPS = ("statuses", "labels")
+CONFIG_MAPS = ("statuses", "labels", "link_types")
+# Link words -> (phrase in KEY's chat, phrase in KEY2's), "KEY <word> KEY2"; link_types adds
+# or replaces words. The phrases are how a link is found again: change them and old links
+# are not recognised.
+LINK_TYPES = {"relates": ("relates to", "relates to"),
+              "blocks": ("blocks", "is blocked by"),
+              "duplicates": ("duplicates", "is duplicated by"),
+              "derived": ("derived from", "source of")}
+LINK_SPLIT = " / "
 CONFIG_KEYS = ("board",) + CONFIG_MAPS
 
 
@@ -186,6 +194,13 @@ def _validate(data, path, lines):
         if not sticker.strip() or not state.strip():
             raise ValueError(where("labels." + name) + "'labels.%s' must be 'Sticker: State',"
                                                        " e.g. 'Release: Waiting'" % name)
+    for name, item in data["link_types"].items():
+        parts = [part.strip() for part in item.split(LINK_SPLIT)]
+        if len(parts) > 2 or not all(parts):
+            raise ValueError(where("link_types." + name) + "'link_types.%s' must be "
+                                                           "'<in KEY> / <in KEY2>' or one "
+                                                           "phrase, e.g. 'blocks / is "
+                                                           "blocked by'" % name)
     return data
 
 
@@ -218,6 +233,19 @@ def load_config():
         raise Failure(CONFIG, "%s cannot be read: %s" % (path, error))
     except ValueError as error:
         raise Failure(CONFIG, str(error))
+
+
+def link_phrases(config, word):
+    """(phrase in KEY's chat, phrase in KEY2's) of a link word; exit 11 when it has none."""
+    words = dict(LINK_TYPES)
+    for name, value in config["link_types"].items():
+        parts = [part.strip() for part in value.split(LINK_SPLIT)]
+        words[name] = (parts[0], parts[-1])
+    if word not in words:
+        raise Failure(REFUSED, "link type '%s' is unknown; the words: %s (a project adds "
+                               "its own in 'link_types' of %s)"
+                      % (word, ", ".join(sorted(words)), CONFIG_PATH))
+    return words[word]
 
 
 def sticker_state(config, word):
@@ -1212,13 +1240,103 @@ def cmd_label(api, args):
     return OK
 
 
+URL_START = ("http://", "https://")
+TASK_KEY = re.compile(r"^[^\W_]+-\d+$")  # DEV-484, ID-484
+
+
 def cmd_link(api, args):
+    if args.target.startswith(URL_START):
+        if args.type is not None:
+            raise Failure(USAGE, "--type is for a link between two tasks, not a URL")
+        return _link_url(api, args)
+    if not (TASK_KEY.match(args.target) or UUID.match(args.target)):
+        raise Failure(USAGE, "'%s' is neither a URL (http:// or https://) nor a task (its key "
+                             "DEV-484, number ID-484 or id)" % args.target)
+    if args.title is not None:
+        raise Failure(USAGE, "--title is for a URL; a link between tasks shows the other "
+                             "task's title")
+    if args.key.strip().casefold() == args.target.strip().casefold():
+        raise Failure(USAGE, "a task is not linked to itself")
+    config = load_config()
+    phrases = link_phrases(config, args.type or "relates")
+    tasks = [api.task(config, args.key), api.task(config, args.target)]
+    if tasks[0]["id"] == tasks[1]["id"]:
+        raise Failure(USAGE, "%s and %s are the same task: a task is not linked to itself"
+                      % (args.key, args.target))
+    # Each side: (the task, the other, the phrase in its chat, its link's comment id).
+    sides = []
+    for task, other, phrase in ((tasks[0], tasks[1], phrases[0]),
+                                (tasks[1], tasks[0], phrases[1])):
+        sides.append([task, other, phrase, _link_comment(api, task, other, phrase)])
+    first, second = (key_of(t) for t in tasks)
+    if all(side[3] for side in sides):
+        print("%s: already linked (%s %s), nothing changed" % (first, phrases[0], second))
+        return OK
+    lines = []
+    for side in sides:
+        task, other, phrase, comment = side
+        if comment:
+            lines.append("%s: already linked (%s %s) in comment %s"
+                         % (key_of(task), phrase, key_of(other), comment))
+            continue
+        line = "%s %s «%s»" % (phrase, key_of(other), " ".join((other.get("title") or
+                                                                "").split()))
+        try:
+            side[3] = _send_message(api, task, "**Link:** " + line,
+                                    "<p><strong>Link:</strong> %s</p>" % html.escape(line))
+        except Failure as failure:
+            done = [s for s in sides if s[3]]
+            raise _link_failure(failure, key_of(task), done[0] if done else None)
+        lines.append("%s: linked (%s %s) in comment %s" % (key_of(task), phrase,
+                                                           key_of(other), side[3]))
+    print("\n".join(lines))
+    return OK
+
+
+def _link_comment(api, task, other, phrase):
+    """The id of a message in the task's chat that links it to other with the phrase."""
+    keys = [k for k in (other.get("idTaskProject"), other.get("idTaskCommon")) if k]
+    # Whatever mark the message has, or none: the fixed line alone makes the link.
+    line = re.compile(r"^[ \t]*(?:\*\*)?Link:(?:\*\*)?[ \t]+%s[ \t]+(?:%s)(?![\w-])"
+                      % (re.escape(phrase), "|".join(map(re.escape, keys))),
+                      re.MULTILINE | re.IGNORECASE)
+    for message in api.pages("chats/%s/messages" % task["id"]):
+        if not message.get("deleted") and line.search(message.get("text") or ""):
+            return message.get("id")
+    return None
+
+
+def _link_failure(failure, key, done):
+    """A failed side of a link: a rerun checks both chats first, so it writes no link twice.
+
+    done is the side that has the link already, or None.
+    """
+    message = failure.message
+    unsure = APPLIED in message or APPLIED_ANSWERED in message
+    reason = message.replace(APPLIED, "").replace(APPLIED_ANSWERED, "")
+    wait = WAIT in reason
+    reason = reason.replace(WAIT, "")
+    rerun = ("send Yougile nothing more until you are told it answers again, then run it "
+             "again" if wait else "run it again")
+    if done:
+        message = "linked on %s (comment %s), not on %s: %s; %s" % (
+            key_of(done[0]), done[3], key, reason, rerun)
+    elif unsure:
+        message = "%s; the comment may have been written: %s (it checks first and writes " \
+                  "no link twice)" % (reason, rerun)
+    result = Failure(failure.code, message)
+    result.status = failure.status
+    return result
+
+
+def _link_url(api, args):
     task = api.task(load_config(), args.key)
-    text = "[%s](%s)" % (args.title, args.url) if args.title else args.url
+    url = args.target
+    text = "[%s](%s)" % (args.title, url) if args.title else url
     # The anchor is built here: a bare URL read as Markdown loses its _x_ to <em>.
     anchor = '<p><a href="%s">%s</a></p>' % (
-        html.escape(args.url), _inline(args.title) if args.title else html.escape(args.url))
-    print("%s: linked %s in comment %s" % (key_of(task), args.url,
+        html.escape(url), _inline(args.title) if args.title else html.escape(url))
+    print("%s: linked %s in comment %s" % (key_of(task), url,
                                            _send_message(api, task, text, anchor)))
     return OK
 
@@ -1289,10 +1407,14 @@ def parser():
     p.add_argument("--remove", action="append", nargs="+", metavar="LABEL")
     p.set_defaults(run=cmd_label)
 
-    p = sub.add_parser("link", help="post a URL to a task as a comment")
+    p = sub.add_parser("link", help="post a URL to a task as a comment, or link two tasks "
+                                    "(a **Link:** comment in each)")
     p.add_argument("key")
-    p.add_argument("url")
-    p.add_argument("--title", help="link text (default: the URL)")
+    p.add_argument("target", metavar="URL|KEY2",
+                   help="an http(s):// URL, or the other task's key, number or id")
+    p.add_argument("--title", help="a URL's link text (default: the URL)")
+    p.add_argument("--type", help="two tasks: KEY <type> KEY2, one of relates (default), "
+                                  "blocks, duplicates, derived, or a word of link_types")
     p.set_defaults(run=cmd_link)
 
     p = sub.add_parser("whoami", help="the account you work as: Real Name (email)")

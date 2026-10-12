@@ -783,6 +783,193 @@ class CommandsTest(YougileTestCase):
                                               '</a></p>' % (url, url))
         self.assertEqual(message["text"], "[LADO: developer]\n\n" + url)
 
+    def test_link_url_refuses_type(self):
+        self.assertFails(yougile.USAGE, "--type is for a link between two tasks", "link",
+                         "DEV-1", "https://git.example/pr/7", "--type", "blocks")
+        self.assertEqual(self.api.requests, [])
+
+
+class LinkTasksTest(YougileTestCase):
+    def link(self, *argv):
+        code, out, err = self.run_yougile("link", *argv)
+        self.assertEqual(code, 0, err)
+        return out
+
+    def texts(self, task):
+        return [m["text"] for m in self.api.data["messages"].get(task, [])]
+
+    def test_relates_by_default(self):
+        out = self.link("DEV-1", "DEV-2")
+        self.assertEqual(out, "DEV-1: linked (relates to DEV-2) in comment 1800000000003\n"
+                              "DEV-2: linked (relates to DEV-1) in comment 1800000000000\n")
+        message = self.api.data["messages"][T1][-1]
+        self.assertEqual(message["text"], "[LADO: developer]\n\n**Link:** relates to DEV-2 "
+                                          "«Logout»")
+        self.assertEqual(message["textHtml"], "<p>[LADO: developer]</p><p><strong>Link:"
+                                              "</strong> relates to DEV-2 «Logout»</p>")
+        self.assertEqual(self.texts(T2), ["[LADO: developer]\n\n**Link:** relates to DEV-1 "
+                                          "«Login form»"])
+
+    def test_each_word(self):
+        cases = {"blocks": ("blocks", "is blocked by"),
+                 "duplicates": ("duplicates", "is duplicated by"),
+                 "derived": ("derived from", "source of")}
+        for word, (there, back) in cases.items():
+            with self.subTest(word=word):
+                self.api.data["messages"] = {}
+                self.link("DEV-1", "DEV-4", "--type", word)
+                self.assertEqual(self.texts(T1), ["[LADO: developer]\n\n**Link:** %s DEV-4 "
+                                                  "«Profile»" % there])
+                self.assertEqual(self.texts(T4), ["[LADO: developer]\n\n**Link:** %s DEV-1 "
+                                                  "«Login form»" % back])
+
+    def test_link_types_of_the_project(self):
+        self.write_config(CONFIG + "link_types:\n  blocks: 'блокирует / заблокирована'\n"
+                                   "  relates: связана с\n  parent: 'parent of / child of'\n")
+        self.link("DEV-1", "DEV-2", "--type", "blocks")
+        self.link("DEV-1", "DEV-4")
+        self.link("DEV-2", "DEV-4", "--type", "parent")
+        self.assertEqual([t.split("\n")[-1] for t in self.texts(T1) if "Link" in t],
+                         ["**Link:** блокирует DEV-2 «Logout»",
+                          "**Link:** связана с DEV-4 «Profile»"])
+        self.assertEqual([t.split("\n")[-1] for t in self.texts(T2)],
+                         ["**Link:** заблокирована DEV-1 «Login form»",
+                          "**Link:** parent of DEV-4 «Profile»"])
+        self.assertEqual([t.split("\n")[-1] for t in self.texts(T4)],
+                         ["**Link:** связана с DEV-1 «Login form»",
+                          "**Link:** child of DEV-2 «Logout»"])
+
+    def test_link_types_wrong(self):
+        for value in ("'a / b / c'", "' / b'", "'a / '"):
+            with self.subTest(value=value):
+                self.write_config(CONFIG + "link_types:\n  blocks: %s\n" % value)
+                self.assertFails(yougile.CONFIG, "line 11: 'link_types.blocks' must be "
+                                                 "'<in KEY> / <in KEY2>' or one phrase",
+                                 "link", "DEV-1", "DEV-2", "--type", "blocks")
+        self.assertEqual(self.api.requests, [])
+
+    def test_unknown_word_before_any_request(self):
+        self.assertFails(yougile.REFUSED, "link type 'causes' is unknown; the words: "
+                                          "blocks, derived, duplicates, relates",
+                         "link", "DEV-1", "DEV-2", "--type", "causes")
+        self.assertEqual(self.api.requests, [])
+
+    def test_already_linked(self):
+        self.link("DEV-1", "DEV-2", "--type", "blocks")
+        writes = len(self.sent("POST", "chats/%s/messages" % T1))
+        self.assertEqual(self.link("DEV-1", "DEV-2", "--type", "blocks"),
+                         "DEV-1: already linked (blocks DEV-2), nothing changed\n")
+        self.assertEqual(len(self.sent("POST", "chats/%s/messages" % T1)), writes)
+        self.assertEqual(len(self.texts(T2)), 1)
+
+    def test_relates_in_the_reverse_order(self):
+        self.link("DEV-1", "DEV-2")
+        self.assertEqual(self.link("DEV-2", "DEV-1"),
+                         "DEV-2: already linked (relates to DEV-1), nothing changed\n")
+        # blocks is not symmetric: the reverse is another link.
+        self.link("DEV-1", "DEV-4", "--type", "blocks")
+        self.assertIn("linked (blocks DEV-1)", self.link("DEV-4", "DEV-1", "--type", "blocks"))
+
+    def test_line_of_another_agent_or_without_mark(self):
+        self.api.data["messages"][T1] = [
+            {"id": 5, "text": "[LADO: reviewer]\n\n**Link:** relates to DEV-2 «Logout»"}]
+        self.api.data["messages"][T2] = [{"id": 6, "text": "Link: relates to dev-1 «x»"}]
+        self.assertEqual(self.link("DEV-1", "DEV-2"),
+                         "DEV-1: already linked (relates to DEV-2), nothing changed\n")
+
+    def test_other_task_named_by_either_key(self):
+        self.api.data["messages"][T1] = [{"id": 5, "text": "**Link:** relates to ID-12 «x»"}]
+        self.api.data["messages"][T2] = [{"id": 6, "text": "**Link:** relates to DEV-1 «x»"}]
+        self.assertIn("already linked", self.link("ID-11", "DEV-2"))
+        self.assertIn("already linked", self.link("DEV-1", "ID-12"))
+        self.assertIn("already linked", self.link(T1, T2))
+
+    def test_no_match_on_a_longer_key_deleted_or_another_phrase(self):
+        self.api.data["messages"][T1] = [
+            {"id": 5, "text": "**Link:** relates to DEV-21 «x»"},
+            {"id": 6, "text": "**Link:** relates to DEV-2 «x»", "deleted": True},
+            {"id": 7, "text": "**Link:** blocks DEV-2 «x»"},
+            {"id": 8, "text": "see **Link:** relates to DEV-2"}]
+        self.assertIn("DEV-1: linked (relates to DEV-2)", self.link("DEV-1", "DEV-2"))
+
+    def test_writes_only_the_missing_side(self):
+        self.api.data["messages"][T1] = [{"id": 5, "text": "**Link:** blocks DEV-2 «Logout»"}]
+        out = self.link("DEV-1", "DEV-2", "--type", "blocks")
+        self.assertEqual(out, "DEV-1: already linked (blocks DEV-2) in comment 5\n"
+                              "DEV-2: linked (is blocked by DEV-1) in comment 1800000000000\n")
+        self.assertEqual(self.sent("POST", "chats/%s/messages" % T1), [])
+
+    def test_second_side_fails(self):
+        self.api.route("POST", "chats/%s/messages" % T2, {"message": "bad"}, status=400)
+        self.assertFails(yougile.REFUSED, "^yougile.py: linked on DEV-1 \\(comment "
+                                          "1800000000003\\), not on DEV-2: Yougile refused "
+                                          "the request \\(400\\): bad; run it again$",
+                         "link", "DEV-1", "DEV-2")
+        del self.api.routes[("POST", "/api-v2/chats/%s/messages" % T2)]
+        out = self.link("DEV-1", "DEV-2")
+        self.assertEqual(out, "DEV-1: already linked (relates to DEV-2) in comment "
+                              "1800000000003\nDEV-2: linked (relates to DEV-1) in comment "
+                              "1800000000000\n")
+        self.assertEqual(len(self.texts(T1)), 4)
+
+    def test_unclear_answer_advises_running_it_again(self):
+        self.api.route("POST", "chats/%s/messages" % T1, {"error": "boom"}, status=502)
+        err = self.assertFails(yougile.SERVER_ERROR, "failed \\(502\\): boom; the comment "
+                                                     "may have been written: run it again",
+                               "link", "DEV-1", "DEV-2")
+        self.assertNotIn("check with get", err)
+        self.api.routes.clear()
+        self.api.route("POST", "chats/%s/messages" % T2, {"error": "boom"}, status=504)
+        err = self.assertFails(yougile.SERVER_ERROR, "linked on DEV-1 \\(comment \\d+\\), "
+                                                     "not on DEV-2: Yougile failed \\(504\\): "
+                                                     "boom; run it again$",
+                               "link", "DEV-1", "DEV-2")
+        failure = yougile._link_failure(yougile.Yougile._network_failure(TimeoutError(),
+                                                                         "POST"), "DEV-2", None)
+        self.assertRegex(failure.message, "did not answer.*the comment may have been "
+                                          "written: send Yougile nothing more until you are "
+                                          "told it answers again, then run it again")
+        self.assertNotIn("check with get", failure.message)
+
+    def test_self_link(self):
+        self.assertFails(yougile.USAGE, "not linked to itself", "link", "DEV-1", "dev-1")
+        self.assertEqual(self.api.requests, [])
+        self.assertFails(yougile.USAGE, "DEV-1 and ID-11 are the same task", "link",
+                         "DEV-1", "ID-11")
+        self.assertEqual(self.sent("POST", "chats/%s/messages" % T1), [])
+
+    def test_task_not_on_the_board(self):
+        self.api.data["tasks"].append({"id": uid(35), "idTaskProject": "OPS-1",
+                                       "idTaskCommon": "ID-15", "title": "x",
+                                       "columnId": FOREIGN})
+        self.assertFails(yougile.NOT_FOUND, "task OPS-1 not found on board", "link", "DEV-1",
+                         "OPS-1")
+        self.assertEqual(self.sent("POST", "chats/%s/messages" % T1), [])
+
+    def test_wrong_arguments_before_any_request(self):
+        self.assertFails(yougile.USAGE, "'git.example/pr' is neither a URL", "link", "DEV-1",
+                         "git.example/pr")
+        self.assertFails(yougile.USAGE, "--title is for a URL", "link", "DEV-1", "DEV-2",
+                         "--title", "x")
+        self.assertEqual(self.api.requests, [])
+
+    def test_chat_read_page_after_page(self):
+        self.api.data["messages"][T1] = [{"id": n, "text": "note"} for n in range(1500)] + [
+            {"id": 2000, "text": "**Link:** relates to DEV-2 «x»"}]
+        self.api.data["messages"][T2] = [{"id": 1, "text": "**Link:** relates to DEV-1 «x»"}]
+        self.assertIn("already linked", self.link("DEV-1", "DEV-2"))
+        self.assertEqual([r["query"]["offset"] for r in
+                          self.sent("GET", "chats/%s/messages" % T1)], ["0", "1000"])
+
+    def test_title_is_escaped_in_html(self):
+        self.task(T2)["title"] = "a <b> & *c*"
+        self.link("DEV-1", "DEV-2")
+        self.assertEqual(self.api.data["messages"][T1][-1]["textHtml"],
+                         "<p>[LADO: developer]</p><p><strong>Link:</strong> relates to DEV-2 "
+                         "«a &lt;b&gt; &amp; *c*»</p>")
+
+
+class LinkUrlTest(YougileTestCase):
     def test_assign_me_and_none(self):
         code, out, err = self.run_yougile("assign", "DEV-1", "me")
         self.assertEqual((code, out), (0, "DEV-1: assignee unassigned -> Agent Smith "

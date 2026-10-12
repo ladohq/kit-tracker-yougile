@@ -1,9 +1,9 @@
 name: tracker-yougile
-version: 0.2.0
+version: 0.3.0
 description: >-
   The tracker skill for Yougile (REST API v2; tried on the cloud, self-hosted untried):
   search, get, create, edit (title, description), transition, comment on, assign and label
-  tasks, link a URL to a task, and whoami, with a standard-library Python script run by uv. No agents: add it to a session next to a
+  tasks, link a URL or another task to a task, and whoami, with a standard-library Python script run by uv. No agents: add it to a session next to a
   process kit.
 dependencies:
   lado: ">=0.30"

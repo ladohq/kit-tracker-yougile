@@ -3,11 +3,11 @@ name: tracker
 description: >-
   The project's task tracker on Yougile: search the board's tasks, get one with its
   comments, create one, edit it (change its title or description), transition it to
-  another column, comment, assign it, label it (add or remove a label), link a URL to it,
-  and whoami (which account you work as). Use whenever your work touches a task in the
+  another column, comment, assign it, label it (add or remove a label), link a URL or
+  another task to it, and whoami (which account you work as). Use whenever your work touches a task in the
   tracker, e.g. "file a bug", "take the task", "assign it to me", "move it to review",
   "fix the task's title", "mark it waiting for release", "close it", "tell the task what
-  changed".
+  changed", "link it to the task it grew out of".
 ---
 
 # Tracker: Yougile
@@ -51,6 +51,7 @@ is not found (exit 7).
 | assign a task | `assign DEV-1 <me \| email \| none> [--reassign]` (`none` unassigns) |
 | add or remove labels | `label DEV-1 [--add '<label>' ...] [--remove '<label>' ...]` |
 | link a branch, commit or pull request | `link DEV-1 <url> [--title '<text>']` |
+| link two tasks | `link DEV-1 DEV-2 [--type relates \| blocks \| duplicates \| derived]` |
 | see which account you work as | `whoami` |
 
 - **Status** is a column of the project's board: a status `S` is a column's title, its id
@@ -80,6 +81,23 @@ is not found (exit 7).
   branch's or commit's page on the repository's host. A branch or commit not pushed, or a
   repository with no remote, has no such page: give the branch and the commit hash in a
   `comment`, and never push to make a link.
+- **link** of two tasks (a second argument that is not a URL) means "DEV-1 `<type>`
+  DEV-2": `relates` (the default), `blocks`, `duplicates`, `derived` (DEV-1 grew out of
+  DEV-2). A task that grew out of another, e.g. one you filed while working on it, is
+  linked to it with `derived`. The script writes a comment in each task's chat, one line
+  after the mark: `**Link:** <phrase> <other task's key> «<its title>»`, with the phrases
+  `relates to` / `relates to`, `blocks` / `is blocked by`, `duplicates` / `is duplicated
+  by`, `derived from` / `source of` (in DEV-1 / in DEV-2). `link_types` in the settings
+  may give a word other phrases or add a word; any other word is refused (exit 11, the
+  words listed): pick the listed word that fits, never invent one. Before writing it
+  reads both chats: a link on both sides, whoever wrote it, is "already linked" (success;
+  `relates` either way round); otherwise it writes the missing sides and prints each
+  comment's id. When one side is written and the other fails, the line says so: run the
+  same command again once the cause is gone, as after an unclear answer (exit 9, 12):
+  it checks first and writes no link twice. Limits: Yougile's "Linked tasks" does not
+  show the link and search does not find it; it is removed only by deleting both
+  comments; after the phrases in `link_types` change, links written with the old ones
+  are not recognised and a rerun writes them again.
 - **get**, **search** show assignees, and **whoami** your account, as
   `Real Name (email)`; a task with no assignee as `unassigned`. To tell whether a task is
   yours, compare its assignee with what `whoami` prints.
@@ -127,6 +145,9 @@ statuses:                     # words process kits use -> a column (title, or id
   done: Done
 labels:                       # a label word -> 'Sticker: State' of a sticker on the board
   waiting for release: 'Release: Waiting'
+link_types:                   # a link word -> '<in DEV-1> / <in DEV-2>', or one phrase for both
+  blocks: 'блокирует / заблокирована'
+  relates: связана с
 ```
 
 Read it when you need the project's words; the user changes it, not you.
@@ -154,12 +175,13 @@ the tracker; otherwise go on with it. Act on the exit code:
 | 7 | task not found, or not on the project's board | check the key; report it if the key came from someone else |
 | 9 | Yougile not reachable or did not answer | report it (network or VPN?) and send Yougile nothing more until you are told it answers again |
 | 10 | TLS failed | report it: a corporate CA goes in a file named by `SSL_CERT_FILE` |
-| 11 | Yougile refused the request, a status is not a column, an email is no account, or `assign` refused a task another account holds | read the line, fix the request once (a status: see **Status**); if it still fails, report it (`assign`: never retry; see **assign**) |
+| 11 | Yougile refused the request, a status is not a column, an email is no account, a link type is unknown, or `assign` refused a task another account holds | read the line, fix the request once (a status: see **Status**; a link type: see **link**); if it still fails, report it (`assign`: never retry; see **assign**) |
 | 12 | Yougile itself failed (5xx), or it still limits requests after the script waited once | report it |
 
 A failed write may have been applied. After exit 9 on a write, once you are told Yougile
 answers again, `get` before running it again; after exit 1 or a 5xx exit 12 on a write,
 there is nothing to wait for: `get` before running it again. A failed `create` has no
 key to `get`: look for the task with `search --text '<title>'` before running `create`
-again, as its line says. Whatever the code, never
+again, as its line says. A failed `link` of two tasks needs no `get`: run it again, as
+its line says (see **link**). Whatever the code, never
 guess the task's state from a failed run: say what failed.

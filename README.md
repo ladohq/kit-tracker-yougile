@@ -3,7 +3,7 @@
 A LADO kit for Yougile (yougile.com; a company's self-hosted Yougile is untried) through
 its REST API v2. It gives the roles of any process kit a skill named `tracker` that searches,
 reads, creates, edits (title, description), moves, comments on, assigns and labels tasks,
-links a URL to them and says which account it works as, through a script on Python's
+links a URL or another task to them and says which account it works as, through a script on Python's
 standard library, run by `uv` (no MCP server). The skill's actions have the names of `tracker-jira-server`'s, so a
 process kit's text fits both.
 
