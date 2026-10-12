@@ -2,7 +2,7 @@
 
 - Дата: 2026-10-12
 - Кит: корень worktree рана `improve/tracker-yougile` (путь задан задачей)
-- Коммит: `3894cf2` (визит 1 шага `evaluate`; blueprint `3868323`)
+- Коммит: `b6ce21a` (визит 2 шага `evaluate`; визит 1 — `3894cf2`; blueprint `3868323`)
 - Оценил: критик kit-builder (слои a и b)
 - Режим: повторная оценка относительно `kit-reports/tracker-yougile-0.3.0-2026-10-12-assess.md`
   (полная оценка `4b24b3c`, база по плану), `git diff 4b24b3c -- kit.yaml README.md
@@ -15,6 +15,12 @@
   к SKILL.md и README. Затем проверка вырезанного (`--word-diff`) и полный проход по
   SKILL.md, README.md, kit.yaml и BLUEPRINT.md целиком. Находок одного прохода: 2,
   обе оставлены как подтверждённые (F3.1, F5.2); отброшенных нет.
+- Визит 2 (`b6ce21a`). Изменение после визита 1 (`git diff 4a48344 b6ce21a`): один коммит,
+  только SKILL.md, пункт **A file in a task** (≈10 строк). Три прохода критик сделал сам:
+  (1) от находок визита 1 к diff; (2) от нового текста к таблице кодов выхода и к «When
+  the script fails»; (3) от SKILL.md к BLUEPRINT R3 и строке 0.3.1 журнала. Полный проход
+  перед вердиктом — по SKILL.md целиком. Находок одного прохода: 0; новая находка F5.3
+  видна во всех трёх проходах.
 
 Находки — кандидаты для человека, а не оценка «сдал / не сдал».
 
@@ -25,9 +31,9 @@
 | a. `lado kits check` | OK; 0 предупреждений |
 | a. Бюджет | зелёный; жёлтых и красных мер нет |
 | a. Потоки | 0 нарисовано (потоков нет, R2); скелетов в BLUEPRINT.md нет («Flow skeletons: none») |
-| b. Рубрика | 3 находки (0 high, 1 medium, 2 low); F12.1, F5.1, F5.2 оценки — RESOLVED; 10 из 12 критериев без находок |
-| Охват | повторная оценка изменённого текста, с полным проходом по 4 файлам из diff (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md) |
-| Правило остановки | не выполнено: 0 high, 1 medium (F5.1) — совет для гейта выпуска, не блок |
+| b. Рубрика | 1 открытая находка (0 high, 0 medium, 1 low: F5.3); визит 1: F5.1, F3.1, F5.2 — RESOLVED; оценка: F12.1, F5.1, F5.2 — RESOLVED; 11 из 12 критериев без открытых находок |
+| Охват | повторная оценка изменённого текста; визит 1 — полный проход по 4 файлам из diff (kit.yaml, README.md, BLUEPRINT.md, skills/tracker/SKILL.md); визит 2 — по SKILL.md |
+| Правило остановки | выполнено: 0 high, 0 medium в изменённом тексте (визит 1 — не выполнено из-за F5.1, теперь RESOLVED) |
 
 Счёт относится только к тому, что названо в строке «Охват».
 
@@ -71,21 +77,19 @@ no flows in . or BLUEPRINT.md: nothing to do (код выхода 0)
 ```
 
 Тесты: `uv run --no-project python -m unittest discover -s tests` — `Ran 107 tests`, `OK`.
+`lado kits check`, бюджет, `--compare` и тесты визита 2 дают тот же вывод, что выше.
 
 ## Вердикт
 
-`approved`: `lado kits check` без ошибок, бюджет зелёный, `--compare` без расхождений,
-high-находок нет. Все три находки оценки исправлены. Осталась одна medium (F5.1) и две
-low, они не блокируют выпуск. Правило остановки не выполнено из-за F5.1: её стоит
-исправить до выпуска одной фразой, решать человеку на гейте.
+`approved` (визит 2): `lado kits check` без ошибок, бюджет зелёный, `--compare` без
+расхождений, открытых high нет. Находки визита 1 исправлены. Осталась одна low (F5.3,
+BLUEPRINT отстаёт от SKILL.md), она не блокирует. Правило остановки выполнено.
 
 ## Исправить в первую очередь
 
-1. SKILL.md:107: тайм-аут скачивания не равен exit 9 — API работает, трекером
-   пользоваться дальше (F5.1).
-2. SKILL.md:104: `curl -fsSL` вместо `curl -sL` (F3.1).
-3. SKILL.md:101–103: про файл в комментарии не утверждать, что `get` покажет `[name](url)`
-   (F5.2).
+1. BLUEPRINT R3 (BLUEPRINT.md:111, 112, 117) и строка 0.3.1 журнала (BLUEPRINT.md:322):
+   привести к SKILL.md — `curl -fsSL`, «not exit 9», вид файла в комментарии. Править
+   планировщику или человеку, не автору (F5.3).
 
 ## Находки
 
@@ -110,6 +114,8 @@ text by this / rule.» (SKILL.md:106–107).
   Fix: `curl -fsSL '<url>' -o …`: ошибка HTTP даёт ненулевой код, а `-S` печатает её строку.
   Passes: 1/3, confirmed (вывод запуска выше; `-f` в `man curl`: «Fail fast with no
   output at all on server errors»).
+  Визит 2: RESOLVED — SKILL.md:104 «download it without the API key (never send the key
+  there): `curl -fsSL '<url>' -o <a».
 
 ### 4. Независимая проверка
 
@@ -132,6 +138,9 @@ text by this / rule.» (SKILL.md:106–107).
   Fix: «A time-out is the network or VPN (`user-data.yougile.com` may need the VPN's
   split): report it as a failure (see "When the script fails"); the tracker's actions
   still work.» Passes: 3/3.
+  Визит 2: RESOLVED — SKILL.md:108–109 «a failed download as **When the script fails**
+  says (a time-out is the network or VPN), / but it is not exit 9: only the file storage
+  is unreachable, so go on using the tracker.»
 
 - **F5.2** [low] `skills/tracker/SKILL.md:101`
   > - **A file in a task** (e.g. a screenshot pasted into a description or a comment) is a
@@ -147,6 +156,25 @@ text by this / rule.» (SKILL.md:106–107).
   Fix: «in a description `get` shows it as `[name](url)`; in a comment, look for a
   `…/user-data/…` URL in its text», или проверить на облаке и записать в R12.
   Passes: 1/3, confirmed (цитата кода).
+  Визит 2: RESOLVED — SKILL.md:103 «description as `[name](url)`, in a comment as the
+  comment's text has it.»
+
+- **F5.3** [low] `BLUEPRINT.md:117`
+  > (time-out) is the network or VPN, as exit 9. `curl` is not in `expects.commands`: the
+
+  и BLUEPRINT.md:112
+  > SKILL.md says the agent may download such a link with `curl -sL`, without the API key
+
+  После визита 2 SKILL.md говорит «not exit 9» и `curl -fsSL` (SKILL.md:104, 109), а R3 —
+  «as exit 9» и `curl -sL`. Кроме того, BLUEPRINT.md:111 «and `get` shows it as a Markdown
+  link» относит это и к комментариям, а SKILL.md:103 уже нет. В строке 0.3.1 журнала
+  (BLUEPRINT.md:322) тоже `curl -sL`. Агенты BLUEPRINT не читают, но следующий автор,
+  сверяясь с R3, может вернуть в SKILL.md «as exit 9» — ту самую ошибку F5.1. Автор
+  оставил это сознательно: ему разрешено менять только раздел 4 (note визита 2).
+  BLUEPRINT.md:247 («`curl -sL` … was tried») — факт пробы, его не трогать.
+  Fix: в R3 «with `curl -fsSL`», «… is the network or VPN; it is not exit 9, the tracker
+  still works», «`get` shows it in a description as a Markdown link»; в строке 0.3.1 —
+  `curl -fsSL`, «not exit 9». Passes: 3/3.
 
 ### 6. Дублирование
 
@@ -217,6 +245,11 @@ description не меняли. Чтение файла — не новое де�
 - **F5.2** (оценки) RESOLVED — README.md:17–20: проба `link` на «polygon» и скачивание
   картинки (LAD-24).
 - Версия: kit.yaml `version: 0.3.1` — сделано. Список build-report «fixed» совпадает с diff.
+- Визит 1, **F5.1** RESOLVED — SKILL.md:108–109 «but it is not exit 9: only the file
+  storage is unreachable, so go on using the tracker».
+- Визит 1, **F3.1** RESOLVED — SKILL.md:104 `curl -fsSL`.
+- Визит 1, **F5.2** RESOLVED — SKILL.md:103 «in a comment as the comment's text has it».
+  Список build-report визита 2 совпадает с diff `4a48344..b6ce21a`.
 
 ## Вырезанные правила
 
@@ -228,11 +261,15 @@ description не меняли. Чтение файла — не новое де�
 | BLUEPRINT R9 «an image shows as its URL», R10 «images become URLs» | R9 и R10, «link» |
 | README «and a network path to Yougile.» | README.md:31–34, дополнено |
 
+| Визит 2: SKILL.md:107 «A time-out is the network or VPN: report it as exit 9.» | SKILL.md:108–109, намеренно исправлено (F5.1): тайм-аут — сеть или VPN, но не exit 9 |
+| Визит 2: SKILL.md:102–103 «`get` shows it as `[name](url)`» | SKILL.md:102–103, уточнено для описания и комментария (F5.2) |
+
 Без потерь.
 
 ## Пропущено ранее
 
-Нет: полный проход по четырём файлам из diff новых находок вне изменения не дал.
+Нет: полные проходы (визит 1 — четыре файла из diff, визит 2 — SKILL.md) новых находок вне
+изменения не дали.
 
 ## Left by the plan
 
@@ -240,5 +277,5 @@ description не меняли. Чтение файла — не новое де�
 
 ## Вопросы человеку
 
-1. Исправить F5.1 (и попутно F3.1, F5.2) до выпуска? Рекомендация: да, это одна-две фразы
-   в SKILL.md:101–107. Блоком для выпуска это не является.
+1. Кто правит BLUEPRINT R3 и строку 0.3.1 (F5.3) до выпуска? Рекомендация: супервизор или
+   планировщик, одной правкой до тега. Это low, выпуск не блокирует.
