@@ -25,9 +25,10 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   skill, named `tracker`, so a process kit's roles say "use the tracker skill" and a role
   that cannot work without it lists `skills: [tracker]`. *Source:* brief, "What to carry
   over".
-- **R3** The skill does ten actions, with the names `tracker-jira-server` uses (`edit`,
-  new in 0.2.0, sets the name for its counterpart there), and says
-  in its own words how to do each; the description and the Actions table of SKILL.md name
+- **R3** The skill does twelve actions, with the names `tracker-jira-server` uses (`edit`,
+  new in 0.2.0, sets the name for its counterpart there; `attach` and `download`, new in
+  0.4.0, keep the names, arguments, output and `attachment:` syntax of its 1.5.0), and
+  says in its own words how to do each; the description and the Actions table of SKILL.md name
   every action, since a process kit decides from them whether to ask the human:
   - `search`: tasks of the project's board, filtered by status (a column or a word of
     `statuses`), assignee (`me`, an email, or `none`) and words of the title, paged by
@@ -36,8 +37,9 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
     the script asks per column of the board. A page that leaves tasks after it ends with
     the `--start` of the next one; `--start` below 0 or `--max` below 1 is refused
     (exit 2), never an empty page.
-  - `get`: key, title, status (the column), assignees, description, and the latest
-    messages of the task's chat, each with its id (the id `comment` prints).
+  - `get`: key, title, status (the column), assignees, description, the task's files
+    (below), and the latest messages of the task's chat, each with its id (the id
+    `comment` prints).
   - `create`: title, description, optional status (default: the board's first column);
     prints the new task's key.
   - `edit`: changes a task's title (`--title`) and/or description (`--description`,
@@ -103,21 +105,53 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
     kit's (the human at the release gate: F5.1, "only the word").
   - `whoami`: the account the key belongs to (`GET /api-v2/users/me`), as
     `Real Name (email)`, never the key.
+  - Files of a task. Yougile has no attachments field: a file is a link
+    `https://<host>/user-data/<uuid>/<name>` in the description or in a message of the
+    task's chat, served to anyone with the link, without authorization. The task's files
+    are every such link of the description and of the whole chat (all pages, deleted
+    messages left out, not only the comments `get` shows), in order of appearance
+    (description first, then the messages oldest first), one file per uuid; its id is
+    the uuid, its name the URL-decoded last segment of the path. The host is not tied to
+    `YOUGILE_URL` (in the cloud the link is on `en.yougile.com`, which redirects to
+    `user-data.yougile.com`). `get` shows them between the description and the comments:
+    `Files: N`, then `<uuid> <name>` per file (size, author and date are not in a link, so
+    left out of Jira's line); no block when there are none. `search` does not show them.
+  - `attach KEY FILE... [--comment -]`: every file is checked before the first upload
+    (exists, can be read, not a folder; else exit 2, nothing uploaded), and so are the
+    `attachment:` names of `--comment` against the task's files and this call's (else
+    exit 11, nothing uploaded). Each file goes up through `POST /api-v2/upload-file`
+    (multipart, field `file`, the key as Bearer; it answers `{result, url, fullUrl}`),
+    then one message goes to the task's chat: the mark (R8), the `--comment` text
+    (Markdown, R9), then the files, an image as `<img>`, any other file as a link with its
+    name; only that message puts the files in the task. It prints `<uuid> <name>
+    attachment:<name>` per file, the name URL-encoded, and last `KEY: comment <id> added`,
+    as `comment` prints. When some files are up and an upload or the message fails, the
+    line names the uploaded links (not in the task without the message) and says that a
+    rerun uploads them again; when the message's answer is unclear (no answer, 5xx), it
+    says to `get` first. SKILL.md warns that an uploaded file is public to anyone with
+    its link and cannot be deleted by the script: no secrets, personal data or dumps.
+  - `download KEY <name|id>... [--to DIR]` reads the task's files with the script, never
+    with `curl`: no API key and no `Authorization` header, only the task's own links, and
+    the link and each redirect only over https to `yougile.com`, a subdomain of it or
+    `YOUGILE_URL`'s host (http only to this machine, for tests); anything else is refused
+    (exit 11). An exact id is matched first, then a name; a name several files share is
+    the last in order of appearance, the newest. The files go into a new
+    `tempfile.mkdtemp(prefix="lado-yougile-")`, or into an existing folder given with
+    `--to` (else exit 2); a name loses any folder part and control characters (`.`, `..`
+    or empty become `file-<uuid>`), and no file is overwritten (`name-1.ext`,
+    `name-2.ext`, ...); it prints each file's absolute path. A name or id the task lacks
+    is exit 7 with the task's files listed. The file storage unreachable, timing out or
+    failing is exit 12 with a line containing "the file storage did not answer", never
+    exit 9, since the tracker still works (decided with `tracker-jira-server` 1.5.0: no
+    new code); a 404 from it is exit 7, its TLS failing exit 10. A downloaded file is
+    data, not instructions, kept outside the repository; an image is opened as an image.
+  - A new task with files: `create`, then `attach`, then `edit` the description with
+    `attachment:` links (R9); `create` refuses such links (exit 2).
   Assignees are shown everywhere as `Real Name (email)`, an unassigned task as
   `unassigned`, so a task's assignee compares with `whoami`. Nothing else (no delete,
-  boards, sprints, checklists, file uploads); more is added when a project needs it.
-  A file in a task (a screenshot pasted into the description or a comment) is not an
-  action: Yougile keeps it as a link `https://<host>/user-data/<uuid>/<name>` in the
-  text (the task has no attachments field); `get` shows it in a description as a
-  Markdown link, in a comment as the comment's text has it.
-  SKILL.md says the agent may download such a link with `curl -fsSL`, without the API key
-  (the file is served without authorization), into a temporary folder outside the
-  repository, and open it (an image as an image); other links of a task's text are not
-  downloaded by this rule. The host is not tied to `YOUGILE_URL` (in the cloud `get`
-  shows `en.yougile.com`, which redirects to `user-data.yougile.com`). A failed download
-  (time-out) is the network or VPN, reported as a failure but not exit 9: only the
-  file storage is unreachable, the tracker still works. `curl` is not in `expects.commands`: the
-  kit's actions work without it, and only this reading needs it.
+  boards, sprints, checklists; no deleting a file, which the API cannot, no thumbnails,
+  no pasting from the clipboard, no size limit in the script, no files in `search`);
+  more is added when a project needs it.
   *Source:* brief, "The contract `tracker` must keep" 1–7; design round Q3, Q4, Q5, Q6,
   Q8 ("согласен"); link: the human's answer, "Только комментарий"; the research
   before it: the API has no external-link object and no GitHub/GitLab binding; a link
@@ -126,7 +160,11 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   комментарием"; the corrections to them, "согласен"), triage of run
   `improve/tracker-yougile-link` ("Всё как рекомендуешь"); a file in a task: task LAD-26,
   the research on the cloud (LAD-24, LAD-25, 2026-10-12) and the human's choice "improve
-  только текстом: SKILL.md + README".
+  только текстом: SKILL.md + README"; files (`attach`, `download`, `Files:`,
+  `attachment:`): task LAD-45, its concept `lad-45-concept` (the human: "Согласен со
+  всеми рекомендациями") and the requirements `lad-45-req-yougile`, which are task LAD-47
+  (Y1–Y8), with the interface shared with `tracker-jira-server` 1.5.0 as the human
+  decided on 2026-10-13 (artifact `lad-46-interface-check`, decisions 1–7, in LAD-47).
 - **R4** Tasks are named by the key people see in Yougile, `idTaskProject` (e.g.
   `DEV-484`): the script prints it everywhere and accepts it in every action; it also
   accepts the company-wide number `idTaskCommon` (e.g. `ID-484`, also shown in Yougile's
@@ -179,25 +217,35 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   wrote; a title-only `edit` leaves the description as it is. SKILL.md says how the mark
   shows in `get`. *Source:* brief, "What to carry over".
 - **R9** Agents write the text they send (`comment`, `link --title`, `create
-  --description`, `edit --description`, `transition --comment`) in Markdown; the script converts it to HTML
+  --description`, `edit --description`, `transition --comment`, `attach --comment`) in Markdown; the script converts it to HTML
   (headings, bold, italic, inline code, fenced code blocks, bullet and numbered lists,
   links) for the description and the message's `textHtml`, and sends the Markdown as
   the message's plain `text` (the API requires both). If the converter fails, the text is
   sent escaped as plain paragraphs. Yougile drops inline code from descriptions (not from
-  comments), and SKILL.md says it shows there as plain text. `get` shows a description
+  comments), and SKILL.md says it shows there as plain text. A file of the task is
+  written `![alt](attachment:NAME)` (to `<img src="URL" alt="alt">`) or
+  `[text](attachment:NAME)` (to `<a href="URL">text</a>`), NAME URL-encoded, as `attach`
+  prints it, or as it is in `<attachment:NAME>`; inside code it stays as written. A name
+  several files share is the newest, the file `download` would take; a message's plain
+  `text` gets the file's URL too, so `get` shows it. In `edit --description`, `comment`,
+  `transition --comment` and `attach --comment` a name the task lacks is exit 11 with its
+  files listed, before anything is written; in `create` any `attachment:` link is exit 2
+  ("create it without them, then attach the files, then edit the description"). `get` shows a description
   as Markdown converted back from Yougile's HTML: the same elements the script writes
   (headings, bold, italic, code, lists, links as `[text](url)`), paragraphs apart by an
   empty line, HTML entities decoded; any other tag is dropped and its text kept, and an image
   (Yougile sends it as a link `<a href=".../user-data/...">`, not `<img>`) shows as a
-  link `[name](url)` (R3 says how to open it); no option prints the raw HTML. Comments show their plain `text`. So
+  link `[name](url)` (R3 says how to open it), an `<img>` (as the script writes a file's
+  image) as its URL; no option prints the raw HTML. Comments show their plain `text`. So
   an agent that quotes a description in a comment or a new task carries no tags.
   *Source:* brief, "Text format"; design round Q9 ("согласен"); output of `get` from
   0.1.2 on: the run of sdlc 0.3.0's flow `task` on a cloud board (2026-10-11), where `get`
   printed `<p>…</p>`, and the human: "давай поправим вот это" (run
   `improve/tracker-yougile-0-1-2`, triage, question 1: "как рекомендуешь").
 - **R10** One default write scope in SKILL.md: reading is always fine; create,
-  transition, comment, assign, label or link only when the agent's role, its step or the
-  human asks, and only on the tasks named. `edit`, which rewrites what someone else may
+  transition, comment, assign, label, link or attach only when the agent's role, its step
+  or the human asks, and only on the tasks named; a file attached is public to anyone
+  with its link, so never secrets, personal data or dumps (LAD-47, Y6). `edit`, which rewrites what someone else may
   have written, only when the human or the agent's step asks; before rewriting a
   description without a `[LADO: …]` mark (a person's), the agent tells the human (a worker
   through the supervisor) what the Markdown round trip of R9 drops (images become links,
@@ -214,7 +262,7 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   exit code per kind, keeping `tracker-jira-server`'s table where the meaning is the same
   (2 arguments, 3 settings, 4 variable unset or `YOUGILE_URL` wrong, 5 key refused, 6 no
   access, 7 not found, 9 not reachable, 10 TLS, 11 refused request, 12 server error or
-  rate limit, 1 crash). A refused key (401) is never retried, and its message says every
+  rate limit, and the file storage not answering a `download`, 1 crash). A refused key (401) is never retried, and its message says every
   agent stops using Yougile until the human makes a new key, stores it as the README says
   and restarts the session (agents read the key only at start). The API allows 50 requests a
   minute per company (API, "Как использовать"): on 429 the script waits once (the
@@ -248,7 +296,16 @@ Sources: the brief written before the interview (`BRIEF.md`, commit ca6bcac, rem
   the cloud sends it (LAD-24), is in the tests, which check that `get` shows it as a link;
   downloading such a link with `curl -sL` without the key was tried on 2026-10-12
   (LAD-24: the PNG downloaded and opened once `user-data.yougile.com` was in the VPN
-  split).
+  split); downloading it with the script (0.4.0) replaces `curl`. For
+  files (0.4.0) the tests cover the files of the description and of a chat of more than
+  one page (repeated uuids, URL-encoded names), `get` with and without files, `attach` of
+  one and several files (checked before the upload, one marked message, a partial
+  failure), `download` by name and id (no `Authorization`, a redirect to another host
+  refused, names cleaned, nothing overwritten, `--to`), and `attachment:` in every
+  command (an unknown name refused with nothing written, `create` exit 2); the trial on
+  the cloud board (attach an image and a PDF, `Files:` in `get`, the same bytes back
+  from `download`, `<img>` shown in a description and in a comment, a name with a space
+  and Cyrillic: LAD-47, Y9) is pending, and the README says so.
   *Source:* brief, "What to carry over"; design round Q10 ("решим в процессе работы");
   the human, after the self-hosted server could not be downloaded
   (dist.yougile.com unreachable through the VPN): "будет надежнее тестировать на живой
@@ -277,31 +334,32 @@ Flow skeletons: none; the kit has no flows (R2), so there are no diagrams.
 
 | Element | Kind | Covers | Why it exists / why nothing simpler |
 |---|---|---|---|
-| `kit.yaml` | manifest | R1, R2, R5 | name, version, description naming the ten actions; `expects.commands: [uv]`, `dependencies.lado: ">=0.30"`; no `supervisor:`, no `dependencies.skills` |
+| `kit.yaml` | manifest | R1, R2, R5 | name, version, description naming the twelve actions and files; `expects.commands: [uv]`, `dependencies.lado: ">=0.30"`; no `supervisor:`, no `dependencies.skills` |
 | `uv` | command (expects) | R5 | runs `yougile.py` with the Python its metadata names on every project; a session without it does not start instead of failing at the first action |
 | `tracker` (`skills/tracker/SKILL.md`) | skill | R1, R2, R3, R4, R6, R8, R9, R10, R11 | the one skill the convention names; how to run each action, keys, Markdown, the settings with an example, the write scope, what each exit code means and what to do |
-| `skills/tracker/yougile.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R11 | the only way to Yougile without MCP; one file, standard library only; the ten commands, key lookup, settings, Markdown to HTML and back for `get`, the mark, the error table and the 429 wait |
+| `skills/tracker/yougile.py` | skill script | R3, R4, R5, R6, R7, R8, R9, R11 | the only way to Yougile without MCP; one file, standard library only; the twelve commands, key lookup, settings, Markdown to HTML (with `attachment:` links) and back for `get`, a task's files, upload and keyless download, the mark, the error table and the 429 wait |
 | `tests/test_yougile.py` | tests (outside the skill) | R11, R12 | checks the script against a fake Yougile before any real board; outside `skills/` so it does not ship into agents' skill folders |
-| `README.md` | doc | R1, R2, R3, R5, R7, R12 | how to add the kit, that `uv` is required, that agents need a network path to `user-data.yougile.com` for files in tasks, where the kit was tried, how to make and keep the key, `YOUGILE_URL`, and where the format of `.lado/tracker.yaml` is (SKILL.md) |
+| `README.md` | doc | R1, R2, R3, R5, R7, R10, R12 | how to add the kit, that `uv` is required, that agents need a network path to `user-data.yougile.com` for files in tasks and that an attached file is public, where the kit was tried, how to make and keep the key, `YOUGILE_URL`, and where the format of `.lado/tracker.yaml` is (SKILL.md) |
 
 Reverse check:
 - R1: `kit.yaml`, `tracker` skill, `README.md` (no project values anywhere).
 - R2: `kit.yaml`, `tracker` skill, `README.md`.
-- R3: `tracker` skill, `yougile.py`, `README.md` (the network path to files).
+- R3: `tracker` skill, `yougile.py`, `tests/test_yougile.py` (files), `README.md` (the
+  network path to files).
 - R4: `tracker` skill, `yougile.py`.
 - R5: `kit.yaml`, `uv`, `yougile.py`, `README.md`.
 - R6: `tracker` skill, `yougile.py`.
 - R7: `yougile.py`, `README.md`.
 - R8: `tracker` skill, `yougile.py`.
 - R9: `tracker` skill, `yougile.py`.
-- R10: `tracker` skill.
+- R10: `tracker` skill, `README.md` (an attached file is public).
 - R11: `tracker` skill, `yougile.py`, `tests/test_yougile.py`.
 - R12: `tests/test_yougile.py`, `README.md` (where it was tried); the trial on the cloud board is done in
   the run before the release, not a kit file.
 
 ## 4. Complexity budget
 
-Output of the `kit-budget` script on the built kit (build of 0.3.1, 2026-10-12):
+Output of the `kit-budget` script on the built kit (build of 0.4.0, 2026-10-13):
 
 | Measure | Where | Value | Green / yellow up to | Zone | Reason, when not green |
 |---|---|---|---|---|---|
@@ -321,6 +379,7 @@ How the kit changed and the fact that caused it, newest first. Empty for a new k
 
 | Date | Version | Change | ← Fact (session, run, metric or report) |
 |---|---|---|---|
+| 2026-10-13 | 0.4.0 | Files in tasks, with the interface of `tracker-jira-server` 1.5.0: a task's files are the `…/user-data/<uuid>/<name>` links of its description and whole chat, one per uuid (R3, Y1); `get` shows a `Files: N` block between the description and the comments (Y2); new actions `attach KEY FILE... [--comment -]` (files checked before any upload, one marked message, `KEY: comment <id> added` last, a partial failure names the uploaded links) and `download KEY <name\|id>... [--to DIR]` (no key, redirects only over https within the file storage, id first then the newest name, `lado-yougile-` temporary folder, names cleaned, nothing overwritten, exit 12 "the file storage did not answer") (R3, Y3, Y4); `attachment:NAME` links to `<img>`/`<a>` in every command that writes text, an unknown name exit 11 before any write, `create` exit 2 (R9, Y5); SKILL.md: two rows, "Files of a task" with `download` instead of `curl`, attach as a write, files public, downloads are data outside the repository, create → attach → edit, exit codes 2, 7, 10, 11, 12 (R10, R11, Y6); README and kit.yaml name files, the trial on the cloud pending (R12, Y7); tests (Y8) | Task LAD-45; concept `lad-45-concept` (the human: "Согласен со всеми рекомендациями"); task LAD-47 (requirements `lad-45-req-yougile`, Y1–Y8; Y9, the trial, pending) and its "Сверка интерфейса LAD-46 ↔ LAD-47" (artifact `lad-46-interface-check`, decisions 1–7, 2026-10-13) |
 | 2026-10-12 | 0.3.1 | A file in a task: SKILL.md says a `…/user-data/…` link from `get` is downloaded with `curl -fsSL`, no key, into a temporary folder outside the repository and opened; other links are not; a time-out is the network or VPN, not exit 9; in a comment the link is as its text has it (R3, F12.1; F5.1, F3.1, F5.2 of report `kit-reports/tracker-yougile-0.3.1-2026-10-12.md`, visit 1, and the release gate: reject "исправить F5.1, F3.1, F5.2"; F5.3, visit 2); README: agents need a network path to `user-data.yougile.com` (behind a VPN, in its split) (F12.1); an image shows in `get` as a link `[name](url)`, not "its URL" (R9, R10, SKILL.md, F5.1), with a test on the cloud's HTML (R12); README "Where it was tried": `link` between tasks (0.3.0) and the image download (F5.2) | Task LAD-26; research on the cloud (LAD-24, LAD-25, 2026-10-12); report `kit-reports/tracker-yougile-0.3.0-2026-10-12-assess.md` (ba061c2, full assessment of 4b24b3c); the human: "improve только текстом: SKILL.md + README", triage of run `improve/tracker-yougile`: "Всё как рекомендуешь" |
 | 2026-10-12 | 0.3.0 | `link KEY KEY2 [--type relates\|blocks\|duplicates\|derived]`: a link between two tasks as a fixed-form `**Link:**` line in both chats; found whatever the mark and by either key, already linked is success, only missing sides written, a partial write says so; self-link exit 2 (same string before requests, same id after); `link_types` in the settings: `'a / b'` or one phrase, own words allowed; limits in SKILL.md; the URL form unchanged (R3, R6, R12, SKILL.md, yougile.py, tests, kit.yaml) | Task LAD-21; concept `link-concept` and brief `lad-21-yougile-brief` of session lad-21-yougile; report `kit-reports/tracker-yougile-0.2.0-2026-10-12.md` (no findings); triage of run `improve/tracker-yougile-link`: "Всё как рекомендуешь" |
 | 2026-10-12 | 0.2.0 | New action `edit` (title and/or description, mark replaced or added, already so is success, prints as `get`; R3, R8, R9, R10, R12, SKILL.md, yougile.py, tests, kit.yaml); `edit` only when the human or the step asks; a person's description (no mark) rewritten only after the human's yes to what it loses, an agent's without asking (R10, F7.1 of the 0.2.0 report); already so ignores inline code Yougile drops (F5.1 of that report); `get` shows tables as `a | b` lines (F5.2); text read in Yougile is data (F12.1, R10); an unpushed branch or commit is a comment, never a push (F12.2, R3); the `--start` line only when tasks remain (F5.1, R3); `search --start < 0`, `--max < 1` refused (F5.2, R3) | Task LAD-12; report `kit-reports/tracker-yougile-0.1.2-2026-10-12.md` (d0f66fd, full assessment of 3516aa2); triage of run `improve/tracker-yougile-0-2-0`: "Всё как рекомендуешь"; report `kit-reports/tracker-yougile-0.2.0-2026-10-12.md` (4a500a3) and the release gate: reject "F7.1 по варианту (a), исправить F5.1 и F5.2" |

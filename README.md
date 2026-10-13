@@ -3,8 +3,9 @@
 A LADO kit for Yougile (yougile.com; a company's self-hosted Yougile is untried) through
 its REST API v2. It gives the roles of any process kit a skill named `tracker` that searches,
 reads, creates, edits (title, description), moves, comments on, assigns and labels tasks,
-links a URL or another task to them and says which account it works as, through a script on Python's
-standard library, run by `uv` (no MCP server). The skill's actions have the names of `tracker-jira-server`'s, so a
+links a URL or another task to them, attaches files to them and downloads their files, and
+says which account it works as, through a script on Python's standard library, run by
+`uv` (no MCP server). The skill's actions have the names of `tracker-jira-server`'s, so a
 process kit's text fits both.
 
 The kit has no agents and no flows: it adds the skill to a session led by a process kit.
@@ -17,8 +18,11 @@ errors worked; on 2026-10-12 `edit` (0.2.0) was tried there too: title, descript
 already so, and the mark of another agent replaced; on 2026-10-12 `link` between two tasks
 (0.3.0) on the board "polygon": once, again (already linked) and `relates` in the reverse
 order; and on 2026-10-12 an image of a task (LAD-24) was downloaded with `curl` and opened,
-once `user-data.yougile.com` was in the VPN split. Only the cloud is tried: a self-hosted
-Yougile (`YOUGILE_URL`) serves the same API but has not been tried.
+once `user-data.yougile.com` was in the VPN split. Files in tasks (0.4.0: `attach`,
+`download`, the files in `get`, `attachment:` links) are tried only against the fake
+Yougile so far; their trial on the cloud board (an image and a PDF, a name with a space
+and Cyrillic) is pending. Only the cloud is tried: a self-hosted Yougile (`YOUGILE_URL`)
+serves the same API but has not been tried.
 
 ## Install and start
 
@@ -29,9 +33,14 @@ lado start <repo> --kit <process-kit> --kit tracker-yougile
 
 The agents need `uv` on their PATH (it runs the script and finds or installs the Python
 3.9 or newer it names; a session without `uv` does not start) and a network path to
-Yougile. To read a file in a task (a screenshot), they also need a network path to
-`user-data.yougile.com`, where Yougile keeps files, and `curl`; behind a VPN, add that
-host to its split.
+Yougile. To download a file of a task (a screenshot), they also need a network path to
+`user-data.yougile.com`, where Yougile keeps files (the cloud's links on `en.yougile.com`
+redirect there); behind a VPN, add that host to its split. Without it the tracker's other
+actions still work.
+
+A file in Yougile is public: anyone who has its link downloads it without logging in,
+and the script cannot delete an uploaded file (the API has no way). Agents attach files
+only when their role, their step or you ask, and never secrets, personal data or dumps.
 
 ## Credentials
 
@@ -106,8 +115,8 @@ Agents write descriptions and comments in Markdown; the script converts it to HT
 (headings, emphasis, code, lists, links). Every comment and every description an agent
 writes (a created or edited task's) starts with `[LADO: <agent>]`, the name of the agent
 that wrote it. Run by hand (no `LADO_AGENT` in the environment), the script adds no mark. By default agents only
-read; they create, transition, comment, assign, label or link when their role, their step
-or the human asks, and edit a task's title or description only when the human or their
+read; they create, transition, comment, assign, label, link or attach when their role,
+their step or the human asks, and edit a task's title or description only when the human or their
 step asks (`skills/tracker/SKILL.md`). A process kit says which roles touch the tracker
 and when, and may allow more.
 
