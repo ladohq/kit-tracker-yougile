@@ -5,8 +5,11 @@
 # ///
 """Yougile from the command line: REST API v2, a bearer API key.
 
-Commands: search, get, create, edit, transition, comment, assign, label, link, whoami
-(run with --help); link posts a URL, or links two tasks with a comment in each. Credentials come from YOUGILE_API_KEY and YOUGILE_URL (optional, default
+Commands: search, get, create, edit, transition, comment, assign, label, link, attach,
+download, whoami (run with --help); link posts a URL, or links two tasks with a comment in
+each. A task's files are the .../user-data/<uuid>/<name> links in its description and
+chat: attach uploads files and posts them in one message, download fetches them without
+the key. Credentials come from YOUGILE_API_KEY and YOUGILE_URL (optional, default
 https://yougile.com, or a self-hosted Yougile's address); the key is never printed.
 Tasks are named by the key people see (idTaskProject, e.g. DEV-484), the company-wide
 number (idTaskCommon, e.g. ID-484) or their id; tasks of other boards are not found.
@@ -21,12 +24,14 @@ import html
 import html.parser
 import http.client
 import json
+import mimetypes
 import os
 import re
 import shlex
 import socket
 import ssl
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -73,6 +78,17 @@ LINK_TYPES = {"relates": ("relates to", "relates to"),
               "derived": ("derived from", "source of")}
 LINK_SPLIT = " / "
 CONFIG_KEYS = ("board",) + CONFIG_MAPS
+# A file of a task: a link to Yougile's file storage in its description or chat, the
+# name with one level of balanced parentheses ("shot (1).png"); the query (a preview's
+# size) is not part of the file.
+_NAME_CHAR = r"[^\s/\"'<>()?#\[\]]"
+FILE_LINK = re.compile(r"https?://[^\s/\"'<>()\[\]]+/user-data/"
+                       r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                       r"[0-9a-fA-F]{12})/((?:%s|\(%s*\))+)" % (_NAME_CHAR, _NAME_CHAR))
+FILE_HOST = "yougile.com"  # the cloud's file storage is on it or a subdomain of it
+REDIRECTS = 5
+URL_SAFE = ":/?#[]@!$&'()*+,;=%~"  # kept as they are when a URL is quoted
+STORAGE = "the file storage did not answer"
 
 
 class Failure(Exception):
@@ -297,20 +313,28 @@ class Yougile:
                                "to a file with the corporate CA" % (cafile, error))
         self.opener = urllib.request.build_opener(
             _NoRedirect, urllib.request.HTTPSHandler(context=context))
+        # Files are fetched with an opener of their own: it never gets the key.
+        self.file_opener = urllib.request.build_opener(
+            _NoRedirect, urllib.request.HTTPSHandler(context=context))
+        self.host = url.hostname
         self.users = {}
         self._board = None
         self._columns = None
 
-    def call(self, method, path, query=None, body=None, missing=None):
+    def call(self, method, path, query=None, body=None, missing=None, upload=None):
+        """`upload`: (data, content type) of a multipart body, sent instead of JSON."""
         url = self.base + "/api-v2/" + path
         if query:
             url += "?" + urllib.parse.urlencode(query)
         data = json.dumps(body).encode("utf-8") if body is not None else None
+        kind = "application/json"
+        if upload:
+            data, kind = upload
         for attempt in (1, 2):
             request = urllib.request.Request(url, data=data, method=method)
             request.add_header("Authorization", self.auth)
             request.add_header("Accept", "application/json")
-            request.add_header("Content-Type", "application/json")
+            request.add_header("Content-Type", kind)
             try:
                 with self.opener.open(request, timeout=TIMEOUT) as response:
                     raw = response.read()
@@ -334,6 +358,70 @@ class Yougile:
             return json.loads(raw.decode("utf-8"))
         except ValueError:
             raise Failure(SETUP, NOT_YOUGILE)
+
+    def storage(self, url):
+        """Whether a file may be fetched from url: https to Yougile's file storage (a host
+        of yougile.com, or YOUGILE_URL's host); http only to this machine (tests)."""
+        try:
+            parts = urllib.parse.urlsplit(url)
+            host = (parts.hostname or "").casefold()
+            parts.port  # raises ValueError on a malformed port
+        except ValueError:
+            return False
+        ours = host in (FILE_HOST, self.host.casefold()) or host.endswith("." + FILE_HOST)
+        return ours and (parts.scheme == "https"
+                         or (parts.scheme == "http" and host in LOOPBACK))
+
+    def fetch(self, url, name):
+        """The bytes of a file of a task, without the key; redirects followed only within
+        the file storage."""
+        # A link as a text has it may hold spaces or letters a request line cannot carry.
+        url = urllib.parse.quote(url, safe=URL_SAFE)
+        for hop in range(REDIRECTS + 1):
+            if not self.storage(url):
+                raise Failure(REFUSED, "%s %s %s, not Yougile's file storage (https to "
+                                       "yougile.com or a subdomain, or to YOUGILE_URL's "
+                                       "host): not followed, not downloaded" % (
+                                           name, "is redirected to" if hop else "links to",
+                                           url.split("?")[0]))
+            request = urllib.request.Request(url, method="GET")
+            try:
+                with self.file_opener.open(request, timeout=TIMEOUT) as response:
+                    return response.read()
+            except urllib.error.HTTPError as error:
+                location = error.headers.get("Location")
+                if error.code in (301, 302, 303, 307, 308) and location:
+                    url = urllib.parse.quote(urllib.parse.urljoin(url, location),
+                                             safe=URL_SAFE)
+                    continue
+                if error.code in (404, 410):
+                    raise Failure(NOT_FOUND, "the file storage has no %s (%d): it may have "
+                                             "been deleted" % (name, error.code))
+                raise Failure(SERVER_ERROR, "%s with %s (%d)" % (STORAGE, name, error.code))
+            except urllib.error.URLError as error:
+                raise self._storage_failure(error.reason, url)
+            except (socket.timeout, TimeoutError, ConnectionError, ssl.SSLError,
+                    http.client.HTTPException) as error:
+                raise self._storage_failure(error, url)
+        raise Failure(SERVER_ERROR, "%s with %s: more than %d redirects"
+                      % (STORAGE, name, REDIRECTS))
+
+    @staticmethod
+    def _storage_failure(reason, url):
+        """The file storage, not the API, failed: the tracker's actions still work."""
+        host = urllib.parse.urlsplit(url).hostname
+        if isinstance(reason, ssl.SSLError):
+            why = getattr(reason, "reason", None) or type(reason).__name__
+            return Failure(TLS, "TLS with the file storage %s failed (%s): if its "
+                                "certificate is from a corporate CA, set SSL_CERT_FILE to a "
+                                "file with that CA" % (host, why))
+        if isinstance(reason, (socket.timeout, TimeoutError)):
+            why = "in %d seconds" % TIMEOUT
+        else:
+            why = "(%s)" % type(reason).__name__
+        return Failure(SERVER_ERROR, "%s %s at %s: is the network (or the VPN, with %s in "
+                                     "its split) up? The tracker itself still works"
+                       % (STORAGE, why, host, host))
 
     def pages(self, path, query=None):
         """Every item of a paged list, page after page."""
@@ -561,9 +649,44 @@ BOLD = re.compile(r"(?<![\w*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w*])"
 ITALIC = re.compile(r"(?<![\w*])\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?![\w*])"
                     r"|(?<![\w_])_(?=[^\s_])(.+?)(?<=[^\s_])_(?![\w_])")
 SLOT = re.compile("\x00(\\d+)\x00")
+# A link or image to a file of the task: attachment:NAME, the name URL-encoded
+# (attachment:my%20file.png), or <attachment:my file.png> as it is.
+ATTACHMENT = re.compile(r"(!?)\[([^\]\n]*)\]\((?:<attachment:([^<>\n]+)>"
+                        r"|attachment:((?:[^()\s]|\([^()\s]*\))+))\)")
 
 
-def _inline(text):
+class Files:
+    """A task's files, in order of appearance, and the attachment: names a text links."""
+
+    def __init__(self, files=()):
+        self.files = list(files)  # {"id", "name", "url"}
+        self.names = []
+
+    def find(self, name):
+        """The URL of the newest file of that name (the last one), or None."""
+        found = [f for f in self.files if f["name"] == name]
+        return found[-1]["url"] if found else None
+
+    def url(self, name):
+        self.names.append(name)
+        return self.find(name) or ""
+
+
+def _attachment_name(match):
+    return match.group(3) if match.group(3) is not None else urllib.parse.unquote(
+        match.group(4))
+
+
+def _attachment(match, files):
+    url = html.escape(files.url(_attachment_name(match)))
+    if match.group(1):
+        return '<img src="%s" alt="%s">' % (url, html.escape(match.group(2)))
+    text = match.group(2).strip()
+    return '<a href="%s">%s</a>' % (url, _inline(text) if text else html.escape(
+        _attachment_name(match), quote=False))
+
+
+def _inline(text, files=None):
     # Code spans and link targets are set aside first, so no markup is read inside them.
     slots = []
 
@@ -573,6 +696,8 @@ def _inline(text):
 
     text = CODE_SPAN.sub(lambda m: keep("<code>%s</code>" % html.escape(m.group(2).strip())),
                          text)
+    if files is not None:
+        text = ATTACHMENT.sub(lambda m: keep(_attachment(m, files)), text)
     text = html.escape(text, quote=False)
     text = LINK.sub(lambda m: '<a href="%s">%s</a>' % (
         keep(html.escape(html.unescape(m.group(2)))), m.group(1)), text)
@@ -583,7 +708,7 @@ def _inline(text):
     return text
 
 
-def _html(text):
+def _html(text, files=None):
     out = []
     paragraph = []
     lists = []  # (indent, "ul" or "ol") of the open list levels, each with an open <li>
@@ -592,7 +717,8 @@ def _html(text):
 
     def flush():
         if paragraph:
-            out.append("<p>%s</p>" % "<br>".join(_inline(line.strip()) for line in paragraph))
+            out.append("<p>%s</p>" % "<br>".join(_inline(line.strip(), files)
+                                                 for line in paragraph))
             del paragraph[:]
 
     def close(level=0):
@@ -630,14 +756,14 @@ def _html(text):
                     close(len(lists) - 1)
                 lists.append((indent, kind))
                 out.append("<%s><li>" % kind)
-            out.append(_inline(match.group(3)))
+            out.append(_inline(match.group(3), files))
             continue
         close()
         match = HEADING.match(line)
         if match:
             flush()
             level = len(match.group(1))
-            out.append("<h%d>%s</h%d>" % (level, _inline(match.group(2)), level))
+            out.append("<h%d>%s</h%d>" % (level, _inline(match.group(2), files), level))
         else:
             paragraph.append(line)
     flush()
@@ -653,12 +779,46 @@ def plain_html(text):
     return "".join("<p>%s</p>" % html.escape(b).replace("\n", "<br>") for b in blocks)
 
 
-def to_html(text):
-    """Markdown to HTML; the text escaped as plain paragraphs if the conversion fails."""
+def to_html(text, files=None):
+    """Markdown to HTML; the text escaped as plain paragraphs if the conversion fails.
+    With `files` (Files), attachment: links become links and images of the task's files,
+    and the names they name are added to files.names."""
     try:
-        return _html(text)
+        return _html(text, files)
     except Exception:
         return plain_html(text)
+
+
+def linked_names(text):
+    """The names the text's attachment: links name, outside code."""
+    probe = Files()
+    to_html(text, probe)
+    return probe.names
+
+
+def linked_text(text, files):
+    """The Markdown with each attachment: link pointing to its file's URL, code left as
+    it is: the plain text of a message, as get shows it."""
+    out, fence = [], None
+    for line in text.split("\n"):
+        if fence:
+            if line.strip().startswith(fence) and not line.strip().strip(fence[0]):
+                fence = None
+        elif FENCE.match(line):
+            fence = FENCE.match(line).group(1)
+        else:
+            slots = []
+
+            def keep(match):
+                slots.append(match.group(0))
+                return "\x00%d\x00" % (len(slots) - 1)
+
+            line = CODE_SPAN.sub(keep, line)
+            line = ATTACHMENT.sub(lambda m: "%s[%s](%s)" % (
+                m.group(1), m.group(2), files.find(_attachment_name(m)) or m.group(0)), line)
+            line = SLOT.sub(lambda m: slots[int(m.group(1))], line)
+        out.append(line)
+    return "\n".join(out)
 
 
 # --- HTML -> Markdown for get: the same subset back, other tags dropped, text kept ------
@@ -883,13 +1043,17 @@ def _marked(body):
     return ("<p>%s</p>" % html.escape(label) if label else "") + body
 
 
-def marked_html(markdown):
+def marked_html(markdown, files=None):
     """The description to send: the mark, then the Markdown as HTML."""
-    return _marked(to_html(markdown) if markdown is not None else "")
+    return _marked(to_html(markdown, files) if markdown is not None else "")
 
 
-def _send_message(api, task, markdown, body_html=None):
-    """Post a message to the task's chat (its id is the task's id); return its id."""
+def _send_message(api, task, markdown, body_html=None, files=None):
+    """Post a message to the task's chat (its id is the task's id); return its id.
+    `files` (Files) resolves the text's attachment: links."""
+    if files is not None:
+        body_html = body_html or to_html(markdown, files)
+        markdown = linked_text(markdown, files)
     label = agent_mark()
     text = "%s\n\n%s" % (label, markdown) if label else markdown
     body = {"text": text, "label": "",
@@ -897,6 +1061,57 @@ def _send_message(api, task, markdown, body_html=None):
     result = api.call("POST", "chats/%s/messages" % task["id"], body=body,
                       missing=missing_task(key_of(task)))
     return (result or {}).get("id")
+
+
+# --- files of a task: links to the file storage in its description and chat ------------
+
+
+def chat(api, task):
+    """The task's chat, all pages, deleted messages left out, oldest first."""
+    messages = [m for m in api.pages("chats/%s/messages" % task["id"])
+                if not m.get("deleted")]
+    messages.sort(key=lambda m: m.get("id") or 0)
+    return messages
+
+
+def task_files(task, messages):
+    """The task's files: each .../user-data/<uuid>/<name> link of its description, then of
+    its chat's messages, in order of appearance; a uuid seen before is the same file."""
+    texts = [html.unescape(task.get("description") or "")]
+    for message in messages:
+        texts += [message.get("text") or "", html.unescape(message.get("textHtml") or "")]
+    files, seen = [], set()
+    for text in texts:
+        for match in FILE_LINK.finditer(text):
+            if match.group(1).lower() in seen:
+                continue
+            seen.add(match.group(1).lower())
+            files.append({"id": match.group(1), "url": match.group(0),
+                          "name": urllib.parse.unquote(match.group(2))})
+    return files
+
+
+def file_list(files):
+    return "; ".join("%s %s" % (f["id"], f["name"]) for f in files) or "none"
+
+
+def attachment_ref(name):
+    """The attachment: form of a name, ready to paste into Markdown."""
+    return "attachment:" + urllib.parse.quote(name, safe="")
+
+
+def _linked_files(api, task, names, more=()):
+    """The task's files (and `more`) for a text's attachment: links; exit 11 before any
+    write when a name is none of theirs."""
+    files = task_files(task, chat(api, task)) if names else []
+    found = Files(files + list(more))
+    unknown = [n for i, n in enumerate(names)
+               if n not in names[:i] and found.find(n) is None]
+    if unknown:
+        raise Failure(REFUSED, "%s has no file %s for the attachment: links, nothing "
+                               "written; its files: %s"
+                      % (key_of(task), ", ".join(unknown), file_list(files)))
+    return found
 
 
 def _assignees(api, ids):
@@ -1018,9 +1233,12 @@ def cmd_get(api, args):
     config = load_config()
     task = api.task(config, args.key)
     _show(api, config, task)
-    messages = [m for m in api.pages("chats/%s/messages" % task["id"])
-                if not m.get("deleted")]
-    messages.sort(key=lambda m: m.get("id") or 0)
+    messages = chat(api, task)
+    files = task_files(task, messages)
+    if files:
+        print("\nFiles: %d" % len(files))
+    for item in files:
+        print("%s %s" % (item["id"], item["name"]))
     shown = messages[-args.comments:] if args.comments > 0 else []
     if messages:
         print("\nComments: %d, the last %d shown" % (len(messages), len(shown)))
@@ -1036,6 +1254,12 @@ def cmd_get(api, args):
 
 
 def cmd_create(api, args):
+    description = read_text(args.description) if args.description is not None else None
+    names = linked_names(description) if description is not None else []
+    if names:
+        raise Failure(USAGE, "a new task has no files for attachment: links (%s): create it "
+                             "without them, then attach the files, then edit the "
+                             "description" % ", ".join(dict.fromkeys(names)))
     config = load_config()
     if args.status:
         column = api.column(config, args.status)
@@ -1045,7 +1269,6 @@ def cmd_create(api, args):
             raise Failure(REFUSED, "board '%s' has no columns to create the task in"
                           % api.board(config).get("title"))
         column = columns[0]
-    description = read_text(args.description) if args.description is not None else None
     body = {"title": args.title, "columnId": column["id"]}
     text = marked_html(description)
     if text:
@@ -1083,6 +1306,10 @@ def cmd_edit(api, args):
     config = load_config()
     task = api.task(config, args.key)
     key = key_of(task)
+    files = None
+    if description is not None:
+        names = linked_names(description)
+        files = _linked_files(api, task, names) if names else None
     body, same = {}, []
     if args.title is not None:
         if args.title == task.get("title"):
@@ -1092,11 +1319,11 @@ def cmd_edit(api, args):
     if description is not None:
         # Compared as get shows them, without the mark: whose mark it is changes nothing.
         old = _comparable(to_markdown(task.get("description") or ""))
-        if old == _comparable(to_markdown(to_html(description))):
+        if old == _comparable(to_markdown(to_html(description, files))):
             same.append("description")
         else:
             # The whole description is replaced: the old mark goes, this agent's comes first.
-            body["description"] = marked_html(description)
+            body["description"] = marked_html(description, files)
     if not body:
         print("%s: %s already so, nothing changed\n" % (key, " and ".join(same)))
         _show(api, config, task)
@@ -1128,11 +1355,13 @@ def cmd_transition(api, args):
                             "   (current)" if column is current else ""))
         return OK
     comment = read_text(args.comment) if args.comment is not None else None
+    names = linked_names(comment) if comment is not None else []
+    files = _linked_files(api, task, names) if names else None
     column = api.column(config, args.target)
     if column is current:
         there = "%s is already in %s" % (key, column_name(current, columns))
         if comment is not None:
-            there += ", comment %s added" % _send_message(api, task, comment)
+            there += ", comment %s added" % _send_message(api, task, comment, files=files)
         print(there)
         return OK
     api.call("PUT", "tasks/%s" % task["id"], body={"columnId": column["id"]},
@@ -1140,7 +1369,7 @@ def cmd_transition(api, args):
     moved = "%s: %s -> %s" % (key, column_name(current, columns), column_name(column, columns))
     if comment is not None:
         try:
-            moved += ", comment %s added" % _send_message(api, task, comment)
+            moved += ", comment %s added" % _send_message(api, task, comment, files=files)
         except Failure as failure:
             # No answer or a 5xx may follow a message Yougile did add; a 429 runs nothing.
             unsure = failure.code == UNREACHABLE or (failure.code == SERVER_ERROR
@@ -1165,7 +1394,10 @@ def cmd_transition(api, args):
 def cmd_comment(api, args):
     text = read_text(args.text)
     task = api.task(load_config(), args.key)
-    print("%s: comment %s added" % (key_of(task), _send_message(api, task, text)))
+    names = linked_names(text)
+    files = _linked_files(api, task, names) if names else None
+    print("%s: comment %s added" % (key_of(task), _send_message(api, task, text,
+                                                                 files=files)))
     return OK
 
 
@@ -1345,6 +1577,176 @@ def _link_url(api, args):
     return OK
 
 
+def _readable(path):
+    if not os.path.exists(path):
+        return "not found"
+    if os.path.isdir(path):
+        return "a folder, not a file"
+    try:
+        with open(path, "rb"):
+            return None
+    except OSError as error:
+        return "cannot be read (%s)" % (error.strerror or error)
+
+
+def _multipart(path, name):
+    boundary = "lado-" + os.urandom(12).hex()
+    quoted = name.replace("\\", "\\\\").replace('"', '\\"')
+    kind = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    with open(path, "rb") as handle:
+        content = handle.read()
+    head = ('--%s\r\nContent-Disposition: form-data; name="file"; filename="%s"\r\n'
+            'Content-Type: %s\r\n\r\n' % (boundary, quoted, kind))
+    data = head.encode("utf-8") + content + ("\r\n--%s--\r\n" % boundary).encode("ascii")
+    return data, "multipart/form-data; boundary=" + boundary
+
+
+def _upload(api, path, name):
+    """Upload a file to the company's file storage: {"id", "name", "url"} of its link."""
+    answer = api.call("POST", "upload-file", upload=_multipart(path, name)) or {}
+    link = answer.get("fullUrl") or ""
+    if not link.startswith(URL_START):
+        link = urllib.parse.urljoin(api.base + "/", answer.get("url") or "")
+    match = FILE_LINK.match(link)
+    if not match:
+        raise Failure(SERVER_ERROR, "Yougile answered the upload of %s without a link "
+                                    ".../user-data/<uuid>/<name> (%s)"
+                      % (name, answer.get("fullUrl") or answer.get("url") or "none"))
+    return {"id": match.group(1), "url": match.group(0),
+            "name": urllib.parse.unquote(match.group(2))}
+
+
+def _is_image(name):
+    return (mimetypes.guess_type(name)[0] or "").startswith("image/")
+
+
+def _clean(failure):
+    """The reason of a failure without the advice for a write: attach gives its own."""
+    return failure.message.replace(APPLIED, "").replace(APPLIED_ANSWERED, "")
+
+
+def cmd_attach(api, args):
+    for path in args.files:
+        problem = _readable(path)
+        if problem:
+            raise Failure(USAGE, "%s: %s; nothing uploaded" % (path, problem))
+    comment = read_text(args.comment) if args.comment is not None else None
+    names = linked_names(comment) if comment is not None else []
+    task = api.task(load_config(), args.key)
+    key = key_of(task)
+    local = [os.path.basename(path) for path in args.files]
+    # Checked before the first upload: this call's files have no link yet, only names.
+    files = _linked_files(api, task, names, [{"id": "", "name": n, "url": ""}
+                                             for n in local])
+    files.files = [f for f in files.files if f["id"]]
+    uploaded = []
+    for number, path in enumerate(args.files):
+        try:
+            item = _upload(api, path, local[number])
+        except Failure as failure:
+            rest = ", ".join(local[number:])
+            if not uploaded:
+                raise Failure(failure.code, "%s: not uploaded %s, nothing added to the task: "
+                                            "%s" % (key, rest, _clean(failure)))
+            raise Failure(failure.code, "%s: uploaded %s, not in the task without the message "
+                                        "that names them; not uploaded %s, no message posted: "
+                                        "%s; a rerun of attach uploads them all again"
+                          % (key, " ".join(f["url"] for f in uploaded), rest,
+                             _clean(failure)))
+        print("%s %s %s" % (item["id"], item["name"], attachment_ref(item["name"])))
+        uploaded.append(item)
+        # This call's files come last, so they are the newest of their names; the local
+        # name finds the file too when Yougile named it otherwise.
+        files.files.append(item)
+        if item["name"] != local[number]:
+            files.files.append(dict(item, name=local[number]))
+    lines, tags = [], []
+    for item in uploaded:
+        url, name = item["url"], item["name"]
+        image = _is_image(name)
+        lines.append("%s[%s](%s)" % ("!" if image else "", name, url))
+        tags.append(('<img src="%s" alt="%s">' if image else '<a href="%s">%s</a>')
+                    % (html.escape(url), html.escape(name)))
+    markdown = "\n".join(lines)
+    body = "<p>%s</p>" % "<br>".join(tags)
+    if comment is not None:
+        markdown = comment.rstrip("\n") + "\n\n" + markdown
+        body = to_html(comment, files) + body
+    try:
+        message = _send_message(api, task, markdown, body, files)
+    except Failure as failure:
+        urls = " ".join(f["url"] for f in uploaded)
+        rerun = "a rerun of attach uploads them again"
+        # No answer or a 5xx may follow a message Yougile did add; a 429 runs nothing.
+        if failure.code == UNREACHABLE or (failure.code == SERVER_ERROR
+                                           and failure.status != 429):
+            raise Failure(failure.code, "%s: uploaded %s, but the message that names them may "
+                                        "not have been posted: %s; check with get: if it is "
+                                        "not there, the files are not in the task, and %s"
+                          % (key, urls, _clean(failure), rerun))
+        raise Failure(failure.code, "%s: uploaded %s, but the message that names them was not "
+                                    "posted, so they are not in the task: %s; %s"
+                      % (key, urls, _clean(failure), rerun))
+    print("%s: comment %s added" % (key, message))
+    return OK
+
+
+def _safe_name(name, fallback):
+    """A file name with no folder in it, no control characters, not '.' or '..'."""
+    name = re.split(r"[/\\]", name or "")[-1]
+    name = re.sub(r"[\x00-\x1f\x7f]", "", name).strip()
+    return fallback if name in ("", ".", "..") else name
+
+
+def _free_path(folder, name):
+    """A path in folder that no file has: name.ext, else name-1.ext, name-2.ext, ..."""
+    stem, ext = os.path.splitext(name)
+    path, number = os.path.join(folder, name), 0
+    while os.path.exists(path):
+        number += 1
+        path = os.path.join(folder, "%s-%d%s" % (stem, number, ext))
+    return path
+
+
+def cmd_download(api, args):
+    if args.to is not None:
+        folder = os.path.abspath(args.to)
+        if not os.path.isdir(folder) or not os.access(folder, os.W_OK | os.X_OK):
+            raise Failure(USAGE, "--to %s is not an existing folder you can write to"
+                          % args.to)
+    task = api.task(load_config(), args.key)
+    key = key_of(task)
+    files = task_files(task, chat(api, task))
+    chosen = []
+    for wanted in args.names:
+        # An id exactly first, then a name: the last file of that name, the newest.
+        found = [f for f in files if f["id"].lower() == wanted.lower()]
+        found = found or [f for f in files if f["name"] == wanted]
+        if not found:
+            raise Failure(NOT_FOUND, "%s has no file '%s'; its files: %s"
+                          % (key, wanted, file_list(files)))
+        chosen.append(found[-1])
+    if args.to is None:
+        folder = tempfile.mkdtemp(prefix="lado-yougile-")
+    done = []
+    for number, item in enumerate(chosen):
+        try:
+            data = api.fetch(item["url"], item["name"])
+            path = _free_path(folder, _safe_name(item["name"], "file-" + item["id"]))
+            with open(path, "xb") as handle:
+                handle.write(data)
+        except (Failure, OSError) as failure:
+            if isinstance(failure, OSError):
+                failure = Failure(USAGE, "cannot write in %s: %s"
+                                  % (folder, failure.strerror or failure))
+            raise Failure(failure.code, "%s: downloaded %s; not downloaded %s: %s" % (
+                key, ", ".join(done) or "none",
+                ", ".join(f["name"] for f in chosen[number:]), failure.message))
+        print(path)
+        done.append(path)
+    return OK
+
+
 def cmd_whoami(api, args):
     print("You work as %s" % _person(api.me()))
     return OK
@@ -1367,7 +1769,8 @@ def parser():
     p.add_argument("--max", type=int, default=20, help="tasks per page (default 20)")
     p.set_defaults(run=cmd_search)
 
-    p = sub.add_parser("get", help="read a task: status, assignees, description, comments")
+    p = sub.add_parser("get", help="read a task: status, assignees, description, files, "
+                                   "comments")
     p.add_argument("key", help="the task's key (DEV-484), number (ID-484) or id")
     p.add_argument("--comments", type=int, default=5, help="last N comments (default 5)")
     p.set_defaults(run=cmd_get)
@@ -1420,6 +1823,22 @@ def parser():
     p.add_argument("--type", help="two tasks: KEY <type> KEY2, one of relates (default), "
                                   "blocks, duplicates, derived, or a word of link_types")
     p.set_defaults(run=cmd_link)
+
+    p = sub.add_parser("attach", help="upload files and post them to a task's chat in one "
+                                      "message; prints each one's attachment: link")
+    p.add_argument("key")
+    p.add_argument("files", nargs="+", metavar="FILE")
+    p.add_argument("--comment", help="text of the message, before the files: Markdown; '-' "
+                                     "reads it from stdin")
+    p.set_defaults(run=cmd_attach)
+
+    p = sub.add_parser("download", help="download a task's files, without the API key; "
+                                        "prints each file's path")
+    p.add_argument("key")
+    p.add_argument("names", nargs="+", metavar="NAME_OR_ID",
+                   help="a file's id (its uuid), or its name (the newest file of that name)")
+    p.add_argument("--to", help="an existing folder (default: a new temporary folder)")
+    p.set_defaults(run=cmd_download)
 
     p = sub.add_parser("whoami", help="the account you work as: Real Name (email)")
     p.set_defaults(run=cmd_whoami)

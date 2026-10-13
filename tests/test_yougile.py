@@ -9,7 +9,9 @@ import copy
 import io
 import json
 import os
+import re
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
@@ -108,6 +110,8 @@ class FakeYougile:
         self.routes = {}
         self.requests = []
         self.created = 0
+        self.storage = {}  # the file storage: /user-data/<uuid>/<name> -> bytes
+        self.uploaded = 0
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -118,10 +122,12 @@ class FakeYougile:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
                 url = urllib.parse.urlsplit(self.path)
+                json_body = (self.headers.get("Content-Type") or "").startswith(
+                    "application/json")
                 request = {"method": self.command, "path": url.path,
                            "query": dict(urllib.parse.parse_qsl(url.query)),
-                           "headers": dict(self.headers),
-                           "body": json.loads(body) if body else None}
+                           "headers": dict(self.headers), "raw": body,
+                           "body": json.loads(body) if body and json_body else None}
                 fake.requests.append(request)
                 route = fake.routes.get((self.command, url.path))
                 if route is not None:
@@ -164,10 +170,26 @@ class FakeYougile:
     def find(self, kind, id_):
         return next((x for x in self.data[kind] if x["id"] == id_), None)
 
+    def store(self, name, data):
+        """A file in the storage, as Yougile keeps an upload; its link."""
+        self.uploaded += 1
+        path = "/user-data/%s/%s" % (uid(600 + self.uploaded), urllib.parse.quote(name))
+        self.storage[path] = data
+        return self.url + path
+
     def serve(self, request):
         method, query, body = request["method"], request["query"], request["body"]
-        parts = request["path"].split("/")[2:]  # after /api-v2/
         not_found = (404, {"statusCode": 404, "message": "Not Found"})
+        if request["path"].startswith("/user-data/"):  # served to anyone with the link
+            data = self.storage.get(request["path"])
+            return (200, Raw(data)) if data is not None else not_found
+        parts = request["path"].split("/")[2:]  # after /api-v2/
+        if parts == ["upload-file"] and method == "POST":
+            # One multipart field "file": its file name, then its bytes.
+            head, _, rest = request["raw"].partition(b"\r\n\r\n")
+            name = re.search(rb'name="file"; filename="([^"]*)"', head).group(1).decode()
+            link = self.store(name, rest[:rest.rindex(b"\r\n--")])
+            return 201, {"result": "success", "url": link[len(self.url):], "fullUrl": link}
         if parts == ["users", "me"]:
             return 200, self.find("users", ME)
         if parts[0] == "users" and len(parts) == 2:
@@ -1066,6 +1088,370 @@ class LinkUrlTest(YougileTestCase):
         self.write_config("board: Dev\nlabels:\n  x: 'Release: Lost'\n")
         self.assertFails(yougile.CONFIG, "sticker 'Release' has no state 'Lost'.*Waiting, "
                                          "Shipped", "label", "DEV-4", "--add", "x")
+
+
+def file_id(link):
+    return link.split("/")[-2]
+
+
+class FilesTest(YougileTestCase):
+    """A task's files: links to the file storage; get, attach, download."""
+
+    def write(self, name, data=b"data"):
+        path = os.path.join(self.repo, name)
+        with open(path, "wb") as handle:
+            handle.write(data)
+        return path
+
+    def folder(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        return folder
+
+    def storage_requests(self):
+        return [r for r in self.api.requests if r["path"].startswith("/user-data/")]
+
+    def test_files_of_the_description_and_every_chat_page(self):
+        plan = self.api.store("plan.pdf", b"pdf")
+        shot = self.api.store("my shot (1).png", b"png")
+        log = self.api.store("log.txt", b"log")
+        gone = self.api.store("gone.txt", b"x")
+        self.task(T1)["description"] = (
+            '<p><a href="%s?previews[]=-256-preview@265x121&amp;x=1">plan.pdf</a> '
+            '<img src="%s"> <a href="https://x.org/user-data/a.png">not a file</a></p>'
+            % (plan, shot))
+        self.api.data["messages"][T1] = [{"id": n, "text": "note"} for n in range(1500)] + [
+            {"id": 2000, "text": "again [plan.pdf](%s) and %s" % (plan, log)},
+            {"id": 2001, "text": gone, "deleted": True},
+            {"id": 1999, "text": "", "textHtml": '<p><a href="%s">shot</a></p>' % shot}]
+        code, out, err = self.run_yougile("get", "DEV-1", "--comments", "1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("\nFiles: 3\n%s plan.pdf\n%s my shot (1).png\n%s log.txt\n"
+                      "\nComments: 1502, the last 1 shown\n"
+                      % (file_id(plan), file_id(shot), file_id(log)), out)
+        self.assertEqual([r["query"]["offset"] for r in
+                          self.sent("GET", "chats/%s/messages" % T1)], ["0", "1000"])
+        self.assertEqual(self.storage_requests(), [])
+
+    def test_get_without_files_has_no_block(self):
+        self.task(T1)["description"] = '<p><a href="https://x.org/a.png">a</a></p>'
+        code, out, err = self.run_yougile("get", "DEV-1")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("Files", out)
+        self.assertIn("\nDescription:\n[a](https://x.org/a.png)\n\nComments: 3", out)
+
+    def test_search_does_not_change(self):
+        self.task(T1)["description"] = '<p>%s</p>' % self.api.store("a.txt", b"a")
+        _, out, _ = self.run_yougile("search", "--text", "Login")
+        self.assertEqual(out, "Tasks 1-1 of 1\nDEV-1  [To do]  Login form  (unassigned)\n")
+
+    def test_attach_one_file(self):
+        path = self.write("shot.png", b"\x89PNG")
+        code, out, err = self.run_yougile("attach", "DEV-1", path)
+        self.assertEqual(code, 0, err)
+        link = self.api.url + "/user-data/%s/shot.png" % uid(601)
+        self.assertEqual(out, "%s shot.png attachment:shot.png\nDEV-1: comment 1800000000003 "
+                              "added\n" % uid(601))
+        upload = self.sent("POST", "upload-file")[0]
+        self.assertEqual(upload["headers"]["Authorization"], "Bearer " + KEY)
+        self.assertRegex(upload["headers"]["Content-Type"],
+                         "^multipart/form-data; boundary=lado-")
+        self.assertIn(b'name="file"; filename="shot.png"\r\nContent-Type: image/png',
+                      upload["raw"])
+        self.assertEqual(self.api.storage["/user-data/%s/shot.png" % uid(601)], b"\x89PNG")
+        self.assertEqual(self.sent("POST", "chats/%s/messages" % T1)[0]["body"], {
+            "text": "[LADO: developer]\n\n![shot.png](%s)" % link, "label": "",
+            "textHtml": '<p>[LADO: developer]</p><p><img src="%s" alt="shot.png"></p>'
+                        % link})
+        _, out, _ = self.run_yougile("get", "DEV-1")
+        self.assertIn("\nFiles: 1\n%s shot.png\n\nComments: 4" % uid(601), out)
+
+    def test_attach_several_files_in_one_message(self):
+        shot, log = self.write("my shot.png", b"png"), self.write("log.txt", b"log")
+        code, out, err = self.run_yougile(
+            "attach", "DEV-1", shot, log, "--comment", "-",
+            stdin="See ![screen](attachment:my%20shot.png) and [the log](<attachment:log.txt>)."
+                  "\n")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.splitlines(), ["%s my shot.png attachment:my%%20shot.png" % uid(601),
+                                            "%s log.txt attachment:log.txt" % uid(602),
+                                            "DEV-1: comment 1800000000003 added"])
+        shot_url = self.api.url + "/user-data/%s/my%%20shot.png" % uid(601)
+        log_url = self.api.url + "/user-data/%s/log.txt" % uid(602)
+        self.assertEqual(len(self.sent("POST", "upload-file")), 2)
+        sent = self.sent("POST", "chats/%s/messages" % T1)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["body"]["text"], (
+            "[LADO: developer]\n\nSee ![screen](%s) and [the log](%s).\n\n![my shot.png](%s)\n"
+            "[log.txt](%s)" % (shot_url, log_url, shot_url, log_url)))
+        self.assertEqual(sent[0]["body"]["textHtml"], (
+            '<p>[LADO: developer]</p><p>See <img src="%s" alt="screen"> and <a href="%s">the '
+            'log</a>.</p><p><img src="%s" alt="my shot.png"><br><a href="%s">log.txt</a></p>'
+            % (shot_url, log_url, shot_url, log_url)))
+
+    def test_attach_checks_every_file_before_any_request(self):
+        good = self.write("a.txt")
+        missing = os.path.join(self.repo, "nope.txt")
+        for bad, problem in ((missing, "not found"), (self.repo, "a folder, not a file")):
+            with self.subTest(bad=bad):
+                self.assertFails(yougile.USAGE, "^yougile.py: %s: %s; nothing uploaded$"
+                                 % (re.escape(bad), problem), "attach", "DEV-1", good, bad)
+        locked = self.write("locked.txt")
+        os.chmod(locked, 0)
+        if not os.access(locked, os.R_OK):  # root reads it anyway
+            self.assertFails(yougile.USAGE, "locked.txt: cannot be read .*; nothing uploaded",
+                             "attach", "DEV-1", good, locked)
+        self.assertEqual(self.api.requests, [])
+
+    def test_attach_comment_names_only_known_files(self):
+        path = self.write("a.txt")
+        self.assertFails(yougile.REFUSED, "^yougile.py: DEV-1 has no file b.txt for the "
+                                          "attachment: links, nothing written; its files: "
+                                          "none$", "attach", "DEV-1", path, "--comment",
+                         "[b](attachment:b.txt) [a](attachment:a.txt)")
+        self.assertEqual(self.sent("POST", "upload-file"), [])
+        self.assertEqual(self.sent("POST", "chats/%s/messages" % T1), [])
+        old = self.api.store("b.txt", b"old")  # a file the task has already
+        self.api.data["messages"][T1].append({"id": 1700000000009, "text": old})
+        code, _, err = self.run_yougile("attach", "DEV-1", path, "--comment",
+                                        "[b](attachment:b.txt)")
+        self.assertEqual(code, 0, err)
+        self.assertIn('<a href="%s">b</a>' % old,
+                      self.api.data["messages"][T1][-1]["textHtml"])
+
+    def test_attach_partial_failure_names_the_uploaded(self):
+        a, b = self.write("a.txt"), self.write("b.txt")
+        first = self.api.url + "/user-data/%s/a.txt" % uid(650)
+        self.api.route("POST", "upload-file", Seq(
+            (201, {}, {"result": "success", "url": first[len(self.api.url):],
+                       "fullUrl": first}),
+            (500, {}, {"error": "boom"})))
+        code, out, err = self.run_yougile("attach", "DEV-1", a, b)
+        self.assertEqual(code, yougile.SERVER_ERROR, err)
+        self.assertEqual(out, "%s a.txt attachment:a.txt\n" % uid(650))
+        self.assertEqual(err, "yougile.py: DEV-1: uploaded %s, not in the task without the "
+                              "message that names them; not uploaded b.txt, no message posted: "
+                              "Yougile failed (500): boom; a rerun of attach uploads them all "
+                              "again\n" % first)
+        self.assertEqual(self.sent("POST", "chats/%s/messages" % T1), [])
+
+    def test_attach_first_upload_refused(self):
+        self.api.route("POST", "upload-file", {"message": "too large"}, status=400)
+        self.assertFails(yougile.REFUSED, "^yougile.py: DEV-1: not uploaded a.txt, b.txt, "
+                                          "nothing added to the task: Yougile refused the "
+                                          r"request \(400\): too large$",
+                         "attach", "DEV-1", self.write("a.txt"), self.write("b.txt"))
+
+    def test_attach_message_not_posted(self):
+        path = self.write("a.txt")
+        self.api.route("POST", "chats/%s/messages" % T1, {"message": "bad"}, status=400)
+        link = re.escape(self.api.url + "/user-data/%s/a.txt" % uid(601))
+        self.assertFails(yougile.REFUSED, "^yougile.py: DEV-1: uploaded %s, but the message "
+                                          "that names them was not posted, so they are not in "
+                                          r"the task: Yougile refused the request \(400\): bad; "
+                                          "a rerun of attach uploads them again$" % link,
+                         "attach", "DEV-1", path)
+        self.api.route("POST", "chats/%s/messages" % T1, {"error": "boom"}, status=502)
+        link = re.escape(self.api.url + "/user-data/%s/a.txt" % uid(602))
+        err = self.assertFails(yougile.SERVER_ERROR,
+                               "^yougile.py: DEV-1: uploaded %s, but the message that names "
+                               r"them may not have been posted: Yougile failed \(502\): boom; "
+                               "check with get: if it is not there, the files are not in the "
+                               "task, and a rerun of attach uploads them again$" % link,
+                               "attach", "DEV-1", path)
+        self.assertNotIn("may have been applied", err)
+
+    def test_download_by_name_and_by_id_without_the_key(self):
+        link = self.api.store("план отчёт.pdf", b"%PDF")
+        self.task(T1)["description"] = '<p><a href="%s">план</a></p>' % link
+        folder = self.folder()
+        code, out, err = self.run_yougile("download", "DEV-1", "план отчёт.pdf", "--to", folder)
+        self.assertEqual((code, out), (0, os.path.join(folder, "план отчёт.pdf") + "\n"), err)
+        with open(out.strip(), "rb") as handle:
+            self.assertEqual(handle.read(), b"%PDF")
+        code, out, err = self.run_yougile("download", "DEV-1", file_id(link), "--to", folder)
+        self.assertEqual((code, out), (0, os.path.join(folder, "план отчёт-1.pdf") + "\n"), err)
+        requests = self.storage_requests()
+        self.assertEqual(len(requests), 2)
+        for request in requests:
+            self.assertNotIn("Authorization", request["headers"])
+
+    def test_download_into_a_new_temporary_folder(self):
+        link = self.api.store("a.txt", b"a")
+        self.api.data["messages"][T1].append({"id": 1700000000009, "text": link})
+        code, out, err = self.run_yougile("download", "DEV-1", "a.txt")
+        self.assertEqual(code, 0, err)
+        path = out.strip()
+        self.addCleanup(shutil.rmtree, os.path.dirname(path))
+        self.assertTrue(os.path.isabs(path), path)
+        self.assertTrue(os.path.basename(os.path.dirname(path)).startswith("lado-yougile-"))
+        self.assertEqual(os.path.dirname(os.path.dirname(path)),
+                         os.path.abspath(tempfile.gettempdir()))
+
+    def test_download_a_repeated_name_is_the_newest(self):
+        old, new = self.api.store("a.txt", b"old"), self.api.store("a.txt", b"new")
+        self.task(T1)["description"] = "<p>%s</p>" % old
+        self.api.data["messages"][T1].append({"id": 1700000000009, "text": new})
+        folder = self.folder()
+        _, out, _ = self.run_yougile("download", "DEV-1", "a.txt", file_id(old), "--to",
+                                     folder)
+        paths = out.splitlines()
+        with open(paths[0], "rb") as first, open(paths[1], "rb") as second:
+            self.assertEqual((first.read(), second.read()), (b"new", b"old"))
+
+    def test_download_sanitizes_names_and_never_overwrites(self):
+        evil = "/user-data/%s/..%%2F..%%2Fevil.sh" % uid(610)
+        dots = "/user-data/%s/%%2E%%2E" % uid(611)
+        self.api.storage.update({evil: b"sh", dots: b"dots"})
+        self.task(T1)["description"] = "<p>%s %s</p>" % (self.api.url + evil,
+                                                         self.api.url + dots)
+        folder = self.folder()
+        with open(os.path.join(folder, "evil.sh"), "wb") as handle:
+            handle.write(b"mine")
+        code, out, err = self.run_yougile("download", "DEV-1", "../../evil.sh", "..",
+                                          uid(610), "--to", folder)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.splitlines(), [os.path.join(folder, "evil-1.sh"),
+                                            os.path.join(folder, "file-%s" % uid(611)),
+                                            os.path.join(folder, "evil-2.sh")])
+        with open(os.path.join(folder, "evil.sh"), "rb") as handle:
+            self.assertEqual(handle.read(), b"mine")
+        self.assertEqual(sorted(os.listdir(folder)),
+                         sorted(["evil.sh", "evil-1.sh", "evil-2.sh", "file-%s" % uid(611)]))
+
+    def test_download_redirects_only_within_the_file_storage(self):
+        link = self.api.store("a.txt", b"A")
+        moved = "/user-data/%s/a.txt" % uid(699)
+        self.task(T1)["description"] = "<p>%s</p>" % (self.api.url + moved)
+        self.api.routes[("GET", moved)] = (302, {"Location": link[len(self.api.url):]}, None)
+        code, out, err = self.run_yougile("download", "DEV-1", "a.txt", "--to", self.folder())
+        self.assertEqual(code, 0, err)
+        for target in (link.replace("127.0.0.1", "localhost"),
+                       "https://evil.example.com/user-data/%s/a.txt" % uid(698),
+                       "http://user-data.yougile.com/user-data/%s/a.txt" % uid(698)):
+            with self.subTest(target=target):
+                self.api.requests.clear()
+                self.api.routes[("GET", moved)] = (302, {"Location": target}, None)
+                self.assertFails(yougile.REFUSED, "^yougile.py: DEV-1: downloaded none; not "
+                                                  "downloaded a.txt: a.txt is redirected to %s, "
+                                                  "not Yougile's file storage .*not followed, "
+                                                  "not downloaded$" % re.escape(target),
+                                 "download", "DEV-1", "a.txt", "--to", self.folder())
+                self.assertEqual([r["path"] for r in self.storage_requests()], [moved])
+
+    def test_download_refuses_a_link_outside_the_file_storage(self):
+        self.task(T1)["description"] = ("<p>https://evil.example.com/user-data/%s/x.txt</p>"
+                                        % uid(698))
+        _, out, _ = self.run_yougile("get", "DEV-1")
+        self.assertIn("\nFiles: 1\n%s x.txt\n" % uid(698), out)
+        self.assertFails(yougile.REFUSED, "x.txt links to https://evil.example.com/.*not "
+                                          "downloaded$", "download", "DEV-1", "x.txt")
+
+    def test_download_wrong_folder_or_name(self):
+        self.assertFails(yougile.USAGE, "--to nowhere is not an existing folder you can write "
+                                        "to", "download", "DEV-1", "a.txt", "--to", "nowhere")
+        self.assertEqual(self.api.requests, [])
+        link = self.api.store("a.txt", b"a")
+        self.task(T1)["description"] = "<p>%s</p>" % link
+        self.assertFails(yougile.NOT_FOUND, "^yougile.py: DEV-1 has no file 'b.txt'; its "
+                                            "files: %s a.txt$" % file_id(link),
+                         "download", "DEV-1", "a.txt", "b.txt")
+        self.assertEqual(self.storage_requests(), [])
+
+    def test_download_file_storage_did_not_answer(self):
+        a, b = self.api.store("a.txt", b"a"), self.api.store("b.txt", b"b")
+        self.task(T1)["description"] = "<p>%s %s</p>" % (a, b)
+        self.api.routes[("GET", b[len(self.api.url):])] = (500, {}, None)
+        folder = self.folder()
+        self.assertFails(yougile.SERVER_ERROR, "^yougile.py: DEV-1: downloaded %s; not "
+                                               "downloaded b.txt: the file storage did not "
+                                               r"answer with b.txt \(500\)$"
+                         % re.escape(os.path.join(folder, "a.txt")),
+                         "download", "DEV-1", "a.txt", "b.txt", "--to", folder)
+        closed = socket.socket()
+        closed.bind(("127.0.0.1", 0))
+        port = closed.getsockname()[1]
+        closed.close()
+        self.task(T1)["description"] = ("<p>http://127.0.0.1:%d/user-data/%s/c.txt</p>"
+                                        % (port, uid(612)))
+        err = self.assertFails(yougile.SERVER_ERROR, "the file storage did not answer "
+                                                     r"\(\w+\) at 127.0.0.1: .*The tracker "
+                                                     "itself still works$",
+                               "download", "DEV-1", "c.txt")
+        self.assertNotIn("send Yougile nothing more", err)
+        failure = yougile.Yougile._storage_failure(TimeoutError(), "https://u.yougile.com/x")
+        self.assertEqual(failure.code, yougile.SERVER_ERROR)
+        self.assertIn("the file storage did not answer in 30 seconds at u.yougile.com",
+                      failure.message)
+
+
+class AttachmentLinksTest(YougileTestCase):
+    """attachment:NAME in the Markdown of every command that writes text."""
+
+    def setUp(self):
+        super().setUp()
+        self.old = self.api.store("shot.png", b"old")
+        self.new = self.api.store("shot.png", b"new")
+        self.log = self.api.store("my log.txt", b"log")
+        self.task(T1)["description"] = "<p>[LADO: analyst]</p><p>%s</p>" % self.old
+        self.api.data["messages"][T1].append({"id": 1700000000009, "text": "%s %s" % (
+            self.new, self.log)})
+
+    def test_edit_description(self):
+        code, _, err = self.run_yougile("edit", "DEV-1", "--description",
+                                        "See ![s](attachment:shot.png) and "
+                                        "[log](attachment:my%20log.txt)")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sent("PUT", "tasks/" + T1)[0]["body"]["description"], (
+            '<p>[LADO: developer]</p><p>See <img src="%s" alt="s"> and <a href="%s">log</a>'
+            '</p>' % (self.new, self.log)))
+
+    def test_comment_and_angle_brackets(self):
+        code, _, err = self.run_yougile("comment", "DEV-1", "-", stdin=(
+            "- [](<attachment:my log.txt>)\n- `[a](attachment:nope)` stays\n"))
+        self.assertEqual(code, 0, err)
+        body = self.sent("POST", "chats/%s/messages" % T1)[0]["body"]
+        self.assertEqual(body["textHtml"], (
+            '<p>[LADO: developer]</p><ul><li><a href="%s">my log.txt</a></li><li><code>[a]'
+            '(attachment:nope)</code> stays</li></ul>' % self.log))
+        self.assertEqual(body["text"], "[LADO: developer]\n\n- [](%s)\n- `[a](attachment:"
+                                       "nope)` stays\n" % self.log)
+
+    def test_transition_comment(self):
+        code, _, err = self.run_yougile("transition", "DEV-1", "review", "--comment",
+                                        "![](attachment:shot.png)")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.api.data["messages"][T1][-1]["textHtml"],
+                         '<p>[LADO: developer]</p><p><img src="%s" alt=""></p>' % self.new)
+
+    def test_an_unknown_name_writes_nothing(self):
+        files = "%s shot.png; %s shot.png; %s my log.txt" % (
+            file_id(self.old), file_id(self.new), file_id(self.log))
+        for argv in (("edit", "DEV-1", "--description", "![](attachment:nope.png)"),
+                     ("comment", "DEV-1", "[x](attachment:nope.png)"),
+                     ("transition", "DEV-1", "review", "--comment",
+                      "[x](attachment:nope.png) [y](attachment:shot.png)")):
+            with self.subTest(argv=argv):
+                self.assertFails(yougile.REFUSED, "^yougile.py: DEV-1 has no file nope.png for "
+                                                  "the attachment: links, nothing written; its "
+                                                  "files: %s$" % re.escape(files), *argv)
+        self.assertEqual(self.sent("PUT", "tasks/" + T1), [])
+        self.assertEqual(self.sent("POST", "chats/%s/messages" % T1), [])
+
+    def test_create_refuses_attachment_links(self):
+        self.assertFails(yougile.USAGE, "^yougile.py: a new task has no files for attachment: "
+                                        r"links \(shot.png\): create it without them, then "
+                                        "attach the files, then edit the description$",
+                         "create", "--title", "New", "--description",
+                         "![a](attachment:shot.png) [b](<attachment:shot.png>)")
+        self.assertEqual(self.api.requests, [])
+
+    def test_code_block_is_left_as_it_is(self):
+        text = "```\n[a](attachment:nope)\n```"
+        code, _, err = self.run_yougile("comment", "DEV-1", text)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.api.data["messages"][T1][-1]["text"],
+                         "[LADO: developer]\n\n" + text)
 
 
 class ErrorsTest(YougileTestCase):
