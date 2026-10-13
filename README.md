@@ -18,10 +18,12 @@ errors worked; on 2026-10-12 `edit` (0.2.0) was tried there too: title, descript
 already so, and the mark of another agent replaced; on 2026-10-12 `link` between two tasks
 (0.3.0) on the board "polygon": once, again (already linked) and `relates` in the reverse
 order; and on 2026-10-12 an image of a task (LAD-24) was downloaded with `curl` and opened,
-once `user-data.yougile.com` was in the VPN split. Files in tasks (0.4.0: `attach`,
-`download`, the files in `get`, `attachment:` links) are tried only against the fake
-Yougile so far; their trial on the cloud board (an image and a PDF, a name with a space
-and Cyrillic) is pending. Only the cloud is tried: a self-hosted Yougile (`YOUGILE_URL`)
+once `user-data.yougile.com` was in the VPN split. On 2026-10-13 files in tasks
+(0.4.0) were tried on "polygon": `attach` of a PNG, a PDF and a PNG named with a space and
+Cyrillic in one message, `Files:` in `get`, `download` by name and by id with the same
+bytes back and nothing overwritten, `attachment:` links in a description and in comments,
+and the refusals of an unknown name and of `create`; the images showed in the description
+and in the chat in the web interface, and the PDF opened. Only the cloud is tried: a self-hosted Yougile (`YOUGILE_URL`)
 serves the same API but has not been tried.
 
 ## Install and start
