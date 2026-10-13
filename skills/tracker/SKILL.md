@@ -71,9 +71,9 @@ is not found (exit 7).
   of the title. When more tasks remain, the page ends with the `--start` of the next one.
 - **create** puts the task in the board's first column unless `--status` names another,
   and prints the new task's key.
-- **edit** prints the task as `get` does, without comments. `--description` replaces the
-  description whole: `get` the task first and send the full text, changed where you mean
-  it. The script puts your mark first, in place of any mark there. A description that
+- **edit** prints the task as `get` does, without its files and comments. `--description`
+  replaces the description whole: `get` the task first and send the full text, changed
+  where you mean it. The script puts your mark first, in place of any mark there. A description that
   does not start with a `[LADO: …]` mark was written by a person: before you rewrite it,
   tell the human (as a worker, through the supervisor) what it loses and wait for their
   yes, even when your step names the edit. `get` shows an image as a link `[name](url)`
@@ -157,9 +157,8 @@ is not found (exit 7).
   as `comment` does. All files are checked first (each exists, can be read, is not a
   folder): a bad one is exit 2 and nothing is uploaded. So are the `attachment:` names of
   `--comment`, which may name the files of this call: one that is neither the task's nor
-  this call's is exit 11, nothing uploaded. Attaching is a write: only when your role,
-  your step or the human asks for it, and only to the tasks named. **An uploaded file is
-  public: anyone who has its link downloads it without logging in, and the script cannot
+  this call's is exit 11, nothing uploaded. Attaching is a write (see above). **An
+  uploaded file is public: anyone who has its link downloads it without logging in, and the script cannot
   delete it. Never attach secrets (`.env`, keys, tokens, passwords), personal data, or
   database or memory dumps.** When a failure leaves files uploaded but no message
   posted, the line names their links: they are not in the task, and running `attach`
@@ -188,8 +187,7 @@ A file of the task is linked as `[text](attachment:<name>)` and shown as an imag
 several files share means the newest of them, as in `download`; inside code it stays as
 written. In `edit --description`, `comment`, `transition --comment` and
 `attach --comment` a name the task lacks is refused before anything is written (exit
-11, the task's files listed); in `create` any `attachment:` link is refused (exit 2):
-see **A new task with files**.
+11, the task's files listed); `create`: see **A new task with files**.
 
 ## Project settings: `.lado/tracker.yaml`
 
